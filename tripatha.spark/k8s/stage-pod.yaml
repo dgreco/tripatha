@@ -1,0 +1,37 @@
+# Copyright 2026 David Greco
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# A pod that mounts Accumulo's shared volume and waits, so `kubectl cp` can put Spark and the tools on it
+# (see README.md, "Run on Kubernetes without a Spark image"). Delete it once they are in place.
+# Render with envsubst: NAMESPACE, DATA_PVC, DATA_PATH, as for spark-standalone.yaml.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tripatha-stage
+  namespace: ${NAMESPACE}
+  labels: {app: tripatha, tripatha-role: stage}
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: data
+      persistentVolumeClaim: {claimName: ${DATA_PVC}}
+  containers:
+    - name: stage
+      image: eclipse-temurin:25-jre
+      command: [bash, -c, "mkdir -p ${DATA_PATH}/tripatha-tools && sleep 3600"]
+      volumeMounts:
+        - {name: data, mountPath: "${DATA_PATH}"}
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {memory: 512Mi}
