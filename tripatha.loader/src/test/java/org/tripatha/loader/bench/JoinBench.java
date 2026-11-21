@@ -48,6 +48,7 @@ import org.tripatha.loader.Loader;
 import org.tripatha.loader.LoaderOptions;
 import org.tripatha.loader.Prepare;
 import org.tripatha.loader.StoreCheck;
+import org.tripatha.loader.StoreFactory;
 import org.tripatha.loader.gen.EntityGenerator;
 import org.tripatha.loader.gen.GenConfig;
 import org.tripatha.rdftriplestore.RyaSailFactory;
@@ -126,21 +127,42 @@ public final class JoinBench {
     }
 
     private void run() throws Exception {
-        final LoaderOptions dataset = LoaderOptions.parse(datasetArgs("load"), Map.of());
+        final boolean external = settings.external();
+        // An external store's connection may take its password from TRIPATHA_ACCUMULO_PASSWORD.
+        final LoaderOptions dataset = LoaderOptions.parse(datasetArgs("load"), external ? System.getenv() : Map.of());
         final GenConfig gen = dataset.genConfig();
         if (settings.writeQueries != null) {
             writeQueries(suite(new EntityGenerator(gen)), settings.writeQueries);
             return;
         }
         Files.createDirectories(settings.out);
-        final TestBackend backend = TestBackends.current();
-        out.printf(Locale.ROOT, "Join benchmark on %s: %,d entities (about %s triples), %d processors, %s.%n", backend.id(),
-                gen.entities(), settings.triples, Runtime.getRuntime().availableProcessors(), Runtime.version());
-        try (Store store = backend.openStore()) {
-            ensureLoaded(backend, store, dataset);
-            tableSizes = tableSizes(store, dataset.rdfConf());
+        final TestBackend backend = external ? null : TestBackends.current();
+        try (Store store = external ? StoreFactory.open(dataset) : backend.openStore()) {
+            final String where = external ? store.backend() + "-external" : backend.id();
+            out.printf(Locale.ROOT, "Join benchmark on %s%s: %,d entities (about %s triples), %d processors, %s.%n", where,
+                    external ? " (" + settings.prefix + ")" : "", gen.entities(), settings.triples,
+                    Runtime.getRuntime().availableProcessors(), Runtime.version());
+            if (external) {
+                // A store loaded elsewhere (on a cluster): never loaded or deleted here, only checked.
+                try {
+                    StoreCheck.forLoad(store, dataset);
+                } catch (final StoreCheck.Mismatch e) {
+                    throw new IllegalArgumentException(e.getMessage() + ". Load it with the dataset options this benchmark uses: "
+                            + "prepare and load (or build, or tripatha.spark's generate) with --table-prefix " + settings.prefix
+                            + " --triples " + settings.triples + " --text-index --geo-index" + (settings.entityIndex ? " --entity-index" : ""),
+                            e);
+                }
+            } else {
+                ensureLoaded(backend, store, dataset);
+            }
+            tableSizes = tableSizes(store, dataset.rdfConf(), settings.prefix);
             out.println("Tables on disk: " + tableSizes + ".");
             if (settings.loadOnly) {
+                return;
+            }
+            if (settings.scanRates) {
+                // M4: one client's scan rates on spo.
+                new ScanRates(store, dataset.rdfConf(), gen, settings.lookups, out).run(settings.out, where);
                 return;
             }
             if (settings.fixedCost) {
@@ -181,7 +203,7 @@ public final class JoinBench {
                         results.addAll(measure(repos, q));
                     }
                 }
-                report(backend.id(), gen, results);
+                report(where, gen, results);
             } finally {
                 repos.values().forEach(SailRepository::shutDown);
             }
@@ -207,7 +229,7 @@ public final class JoinBench {
     /** The tables' sizes on disk, as the store reports them after the load's compaction; for the report. */
     private String tableSizes = "";
 
-    private static String tableSizes(final Store store, final StoreRdfConfiguration conf) {
+    private static String tableSizes(final Store store, final StoreRdfConfiguration conf, final String prefix) {
         final TableLayoutStrategy t = conf.getTableLayoutStrategy();
         final List<String> parts = new ArrayList<>();
         long total = 0;
@@ -215,7 +237,7 @@ public final class JoinBench {
                 t.getTextCount())) {
             final long bytes = store.tables().exists(table) ? store.tables().diskUsage(table) : -1;
             if (bytes >= 0) {
-                parts.add(String.format(Locale.ROOT, "%s %.0f MB", table.substring(PREFIX.length()), bytes / 1e6));
+                parts.add(String.format(Locale.ROOT, "%s %.0f MB", table.substring(prefix.length()), bytes / 1e6));
                 total += bytes;
             }
         }
@@ -226,12 +248,16 @@ public final class JoinBench {
     // ---- dataset ----
 
     private String[] datasetArgs(final String command) {
-        final List<String> a = new ArrayList<>(List.of(command, "--table-prefix", PREFIX, "--triples", settings.triples,
-                "--text-index", "--geo-index", "--threads", Integer.toString(settings.loadThreads), "--progress-file",
-                progressFile().toString(), "--report-interval", "30s"));
+        final List<String> a = new ArrayList<>(List.of(command, "--table-prefix", settings.prefix, "--triples", settings.triples,
+                "--text-index", "--geo-index", "--threads", Integer.toString(settings.loadThreads), "--report-interval", "30s"));
+        if (!settings.external()) {
+            a.addAll(List.of("--progress-file", progressFile().toString()));
+        }
         if (settings.entityIndex) {
             a.add("--entity-index");
         }
+        // How an external store is reached: the loader's own connection options.
+        a.addAll(settings.store);
         return a.toArray(new String[0]);
     }
 
@@ -275,10 +301,10 @@ public final class JoinBench {
             matchEntityIndex(store, conf);
             return;
         }
-        if (store.tables().list().stream().anyMatch(t -> t.startsWith(PREFIX))) {
+        if (store.tables().list().stream().anyMatch(t -> t.startsWith(settings.prefix))) {
             out.println(fingerprint.equals(stored) ? "Store holds the dataset but no record that its load finished: "
                     + "deleting its tables." : "Store holds another dataset: deleting its tables.");
-            backend.deleteTables(PREFIX);
+            backend.deleteTables(settings.prefix);
         }
         Files.deleteIfExists(progressFile());
         final long t0 = System.nanoTime();
@@ -907,7 +933,17 @@ public final class JoinBench {
 
     record Settings(String triples, int warmup, int runs, int timeoutSeconds, int loadThreads, boolean profile, Path out,
             Path baseline, List<String> only, Map<String, String> conf, List<Variant> variants, boolean entityIndex,
-            Path writeQueries, boolean loadOnly, boolean bulk, boolean fixedCost) {
+            Path writeQueries, boolean loadOnly, boolean bulk, boolean fixedCost, String prefix, List<String> store,
+            boolean scanRates, int lookups) {
+        /** The loader's connection options that name an existing store, instead of a test cluster. */
+        static final List<String> STORE_OPTIONS = List.of("--accumulo-properties", "--hbase-properties", "--hbase-site", "--hbase-conf",
+                "--hbase-user", "--rocksdb-path", "--backend");
+
+        /** Whether the store is an existing one, reached with the loader's connection options. */
+        boolean external() {
+            return !store.isEmpty();
+        }
+
         static final String USAGE = """
                 Usage: bench.sh [--backend rocksdb|accumulo|hbase] [options]
                   --triples 10M        dataset size (the loader's generator, both indexes on)
@@ -928,6 +964,16 @@ public final class JoinBench {
                   --bulk               build the store with the bulk build (sorted files, imported) instead of load
                   --fixed-cost         instead of the suite's timings, where each query's time goes: open, parse, plan
                                        (and its scans), run (M14; FixedCost), with --warmup and --runs
+                  --scan-rates         instead of the suite, one client's scan rates on spo (M4; ScanRates): a long scan,
+                                       lookups one at a time, and batches of lookups
+                  --lookups 1000       lookups per measurement of --scan-rates
+
+                An existing store, loaded elsewhere (a cluster) with this benchmark's dataset options (--triples,
+                --text-index --geo-index, --entity-index if given), instead of a test cluster: never loaded or deleted.
+                  --table-prefix P     its prefix (default bench_)
+                  --accumulo-properties FILE   Accumulo, as the loader connects (TRIPATHA_ACCUMULO_PASSWORD for the password)
+                  --hbase-properties FILE      HBase (also --hbase-site, --hbase-conf, --hbase-user, as for the loader)
+                  --rocksdb-path DIR           a RocksDB store (one process at a time)
                 """;
 
         static Settings parse(final String[] args) {
@@ -941,6 +987,10 @@ public final class JoinBench {
             boolean loadOnly = false;
             boolean bulk = false;
             boolean fixedCost = false;
+            boolean scanRates = false;
+            int lookups = 1_000;
+            String prefix = "bench_";
+            final List<String> store = new ArrayList<>();
             Path out = Path.of("target", "bench");
             Path baseline = null;
             Path writeQueries = null;
@@ -969,6 +1019,10 @@ public final class JoinBench {
                     fixedCost = true;
                     continue;
                 }
+                if (a.equals("--scan-rates")) {
+                    scanRates = true;
+                    continue;
+                }
                 if (i + 1 >= args.length) {
                     throw new IllegalArgumentException("missing value for " + a);
                 }
@@ -991,14 +1045,29 @@ public final class JoinBench {
                         conf.put(v.substring(0, eq), v.substring(eq + 1));
                     }
                     case "--variant" -> variants.add(variant(v));
-                    default -> throw new IllegalArgumentException("unknown option " + a);
+                    case "--lookups" -> lookups = Math.max(1, Integer.parseInt(v));
+                    case "--table-prefix" -> prefix = v;
+                    default -> {
+                        if (!STORE_OPTIONS.contains(a)) {
+                            throw new IllegalArgumentException("unknown option " + a);
+                        }
+                        store.add(a);
+                        store.add(v);
+                    }
                 }
             }
             if (variants.isEmpty()) {
                 variants.add(new Variant("default", Map.of()));
             }
+            if (!store.isEmpty() && bulk) {
+                throw new IllegalArgumentException("--bulk loads a test cluster: an existing store is never loaded here");
+            }
+            if (store.isEmpty() && !prefix.equals("bench_")) {
+                throw new IllegalArgumentException("--table-prefix names an existing store's tables: give its connection too "
+                        + "(--accumulo-properties, --hbase-properties or --rocksdb-path)");
+            }
             return new Settings(triples, warmup, runs, timeout, loadThreads, profile, out, baseline, only, conf, List.copyOf(variants),
-                    entityIndex, writeQueries, loadOnly, bulk, fixedCost);
+                    entityIndex, writeQueries, loadOnly, bulk, fixedCost, prefix, List.copyOf(store), scanRates, lookups);
         }
 
         private static Variant variant(final String v) {
