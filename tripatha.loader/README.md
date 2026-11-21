@@ -163,15 +163,16 @@ tripatha.loader/bench.sh $B --load-only
 # 2. M4, one client's scan rates: run it first right after the tablet servers restart (a cold cache), then again (warm)
 tripatha.loader/bench.sh $B --scan-rates
 
-# 3. M3, the query suite: latencies, CPU, and the scans and cells of each query from the trace
-tripatha.loader/bench.sh $B
-#    the cluster defaults still open (O16, O21), as variants of one run on the same store
-tripatha.loader/bench.sh $B \
+# 3. M3, the query suite: latencies, CPU, and the scans and cells of each query from the trace. A short first pass:
+tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600
+#    then the cluster defaults still open (O16, O21), as variants of one run, on the queries whose lookups they decide
+tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600 --only star-in,star-optional,chain,star-unused,chain-unused \
   --variant default: --variant threads4:query.join.lookupthreads=4 \
   --variant ahead:query.join.lookupthreads=4,query.join.prefetchahead=true --variant subjects:query.join.subjectranges=true
 ```
 
 - **What to send back:** the Markdown reports in `tripatha.loader/target/bench` (`--out` names another directory), the Spark job's output, and the cluster's shape: tablet servers, their cores, memory and disks, and where Accumulo stores its files.
+- **The suite's results grow with the store:** `star-in` returns 1,208 rows at 1M triples, 2,897 at 3M and 7,281 at 10M, about 1 s on the Accumulo test cluster. At 500M expect results around 50 times larger. So the first pass runs each query 4 times, with 10 minutes each at most, and a report shows a timeout as a failed run. The default settings (`--warmup 3 --runs 10`, 2 minutes) are for the 10M store.
 - **Cold and warm:** the scan rates draw new entities for every measurement, but the servers' block caches and the S3 store keep what earlier runs read. The first run after the tablet servers restart is the cold one.
 - **The write path** (M2's other half): `run.sh load` of a slice into a prefix of its own, say `--triples 10M --threads 16`, gives triples per second through Accumulo's write path. Run it on one, then several machines with `--part K --parts N`, and watch the compaction backlog.
 - **Maintenance** (M7, at this size): through the endpoint, `DROP GRAPH` of a small and of a large graph and `stats:approxSize`; with the loader, `rebuild` of an index under a prefix of its own.
