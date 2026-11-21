@@ -77,13 +77,11 @@ public final class Prepare {
                 }
                 final String entity = conf.getTableLayoutStrategy().getEntity();
                 final List<byte[]> rows = conf.isEntityIndex() ? dao.getIndexCatalog().entityIndex().shardRows() : List.of();
-                // A shard is one row: split at every shard but the first, so shards spread over the servers
-                // (unless --splits 0). Once is enough, and a second prepare asks for none.
+                // A shard is one row: one tablet or region each, so shards spread over the servers (unless
+                // --splits 0). Once is enough, and a second prepare asks for none.
                 if (o.splits() != 0 && rows.size() > 1 && store.tables().splitCount(entity) < rows.size() - 1) {
-                    final java.util.SortedSet<byte[]> shards = new java.util.TreeSet<>(java.util.Arrays::compareUnsigned);
-                    shards.addAll(rows.subList(1, rows.size()));
                     out.println("Splitting the entity index at its " + rows.size() + " shards…");
-                    store.tables().addSplits(entity, shards);
+                    store.tables().addSplits(entity, SplitPlanner.shardSplits(store, rows));
                 }
             }
 

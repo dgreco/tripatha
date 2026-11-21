@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -494,6 +495,33 @@ class LoaderIT extends StoreITBase {
                 "--spill-memory-mb", "1");
         a.addAll(List.of(extra));
         return a;
+    }
+
+    /**
+     * Each of the entity index's shards in a tablet or region of its own, whichever end of a range
+     * the backend's split points mark: a shard is one row, so two in one tablet put twice the
+     * postings on one server, and an empty one serves nothing.
+     */
+    @Test
+    void prepareGivesEachEntityShardATabletOfItsOwn() throws Exception {
+        assumeFalse(onBackend("rocksdb"), "a RocksDB store has no tablets");
+        prepare();
+        final List<byte[]> shards = new org.tripatha.store.index.EntityIndex(4).shardRows();
+        final List<byte[]> splits = getStore().tables().splitRows(getTablePrefix() + "entity", Integer.MAX_VALUE);
+        assertEquals(shards.size() - 1, splits.size(), "one split between each two shards");
+        final boolean endsTablet = getStore().bulk().map(org.tripatha.store.spi.BulkImport::splitPointEndsTablet).orElse(false);
+        final Set<Integer> tablets = new HashSet<>();
+        for (final byte[] shard : shards) {
+            int tablet = 0;
+            for (final byte[] split : splits) {
+                final int c = java.util.Arrays.compareUnsigned(shard, split);
+                if (c > 0 || c == 0 && !endsTablet) {
+                    tablet++;
+                }
+            }
+            tablets.add(tablet);
+        }
+        assertEquals(shards.size(), tablets.size(), "the shards' tablets: " + tablets);
     }
 
     /** The same store as load writes: the dataset, the indexes, verify, and the cells of a load into another prefix. */

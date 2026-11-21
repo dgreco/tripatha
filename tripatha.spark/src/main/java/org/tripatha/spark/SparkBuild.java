@@ -85,7 +85,10 @@ import scala.Tuple2;
  * Accumulo adds imported counters to what a table holds.
  */
 public final class SparkBuild {
-    /** Files per tablet: Accumulo refuses an import that gives a tablet too many ({@code table.bulk.max.tablet.files}, 100). */
+    /**
+     * Files per tablet, at most: fewer when the table's {@code table.file.max} is lower (15 by
+     * default), since Accumulo compacts a tablet that holds more files than that.
+     */
     static final int MAX_FILES_PER_TABLET = 50;
 
     enum Command {
@@ -369,7 +372,7 @@ public final class SparkBuild {
         if (files && Boolean.parseBoolean(job.getProperty("fresh"))) {
             splitFreshStore(conf, sample);
         }
-        spec.layout = layout(conf, tables, sample);
+        spec.layout = layout(conf, tables, sample, spec.tableProperties);
         final long t1 = System.currentTimeMillis();
 
         final LongAccumulator statements = sc.sc().longAccumulator("statements");
@@ -561,12 +564,10 @@ public final class SparkBuild {
                 store.tables().setTargetSize(table, o.tabletSize());
             }
         }
-        // A shard is one row: split at every shard but the first, as prepare does (unless --splits 0).
+        // A shard is one row: one tablet each, as prepare splits them (unless --splits 0).
         final List<byte[]> shards = conf.isEntityIndex() ? new EntityIndex(o.entityShards()).shardRows() : List.of();
         if (o.splits() != 0 && shards.size() > 1 && store.tables().splitCount(t.getEntity()) < shards.size() - 1) {
-            final SortedSet<byte[]> points = new TreeSet<>(Arrays::compareUnsigned);
-            points.addAll(shards.subList(1, shards.size()));
-            store.tables().addSplits(t.getEntity(), points);
+            store.tables().addSplits(t.getEntity(), SplitPlanner.shardSplits(store, shards));
         }
     }
 
@@ -575,7 +576,8 @@ public final class SparkBuild {
      * within each tablet so that a file holds about {@code --file-size} of cells; the entity
      * index's shard rows are spread by column instead.
      */
-    private Shuffle.Layout layout(final StoreRdfConfiguration conf, final List<String> tables, final Sample sample) {
+    private Shuffle.Layout layout(final StoreRdfConfiguration conf, final List<String> tables, final Sample sample,
+            final Map<String, ? extends Map<String, String>> properties) {
         final double fileBytes = opts.fileSizeMb * (double) (1L << 20);
         final byte[][][] points = new byte[tables.size()][][];
         final int[] buckets = new int[tables.size()];
@@ -586,11 +588,12 @@ public final class SparkBuild {
             counters[i] = isCounters(table);
             final List<byte[]> tablets = store.tables().splitRows(table, Integer.MAX_VALUE);
             final double bytes = sample.bytes(table);
+            final int most = filesPerTablet(properties.get(table));
             final TreeSet<byte[]> all = new TreeSet<>(Arrays::compareUnsigned);
             all.addAll(tablets);
             buckets[i] = 1;
             if (table.equals(conf.getTableLayoutStrategy().getEntity())) {
-                buckets[i] = (int) Math.max(1, Math.min(MAX_FILES_PER_TABLET, Math.ceil(bytes / (tablets.size() + 1) / fileBytes)));
+                buckets[i] = (int) Math.max(1, Math.min(most, Math.ceil(bytes / (tablets.size() + 1) / fileBytes)));
             } else {
                 final List<byte[]> rows = sample.sortedRows(table);
                 int r = 0;
@@ -603,8 +606,7 @@ public final class SparkBuild {
                     if (rows.isEmpty() || in.size() < 2) {
                         continue;
                     }
-                    final int files = (int) Math.max(1, Math.min(MAX_FILES_PER_TABLET,
-                            Math.ceil(bytes * in.size() / rows.size() / fileBytes)));
+                    final int files = (int) Math.max(1, Math.min(most, Math.ceil(bytes * in.size() / rows.size() / fileBytes)));
                     for (final org.apache.hadoop.io.Text p : SplitPlanner.quantiles(in, files - 1)) {
                         all.add(Arrays.copyOf(p.getBytes(), p.getLength()));
                     }
@@ -615,6 +617,24 @@ public final class SparkBuild {
                     (points[i].length + 1) * buckets[i]);
         }
         return new Shuffle.Layout(tables, counters, points, buckets);
+    }
+
+    /**
+     * The files a tablet of a table may get: at most its {@code table.file.max} (above it Accumulo
+     * compacts the tablet; 0 means the servers' open-file limit), and at most
+     * {@link #MAX_FILES_PER_TABLET}.
+     */
+    static int filesPerTablet(final Map<String, String> tableProperties) {
+        final String raw = tableProperties == null ? null : tableProperties.get("table.file.max");
+        int max = 15;
+        if (raw != null && !raw.isBlank()) {
+            try {
+                max = Integer.parseInt(raw.trim());
+            } catch (final NumberFormatException e) {
+                max = 15;
+            }
+        }
+        return max <= 0 ? MAX_FILES_PER_TABLET : Math.max(1, Math.min(MAX_FILES_PER_TABLET, max));
     }
 
     // ------------------------------------------------------------------ import

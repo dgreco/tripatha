@@ -11,7 +11,7 @@ It needs Spark 4.2 on Java 25 (Spark 4.2 runs on Hadoop 3.5, whose client works 
 
 1. **The driver plans.** It checks the store (for `generate`, that `prepare` made it for the same dataset and indexes), samples the input, and fixes each table's files.
    - **On a new store,** it adds split points as `prepare` does: each table's estimated size on disk over `--tablet-size`, at least 4 × tablet servers − 1.
-   - **Each table's files** are its tablets, cut further at rows of the sample so that a file holds about `--file-size` of cells, with at most 50 files per tablet.
+   - **Each table's files** are its tablets, cut further at rows of the sample so that a file holds about `--file-size` of cells, with at most the table's `table.file.max` files per tablet (15 by default), since Accumulo compacts a tablet with more.
 2. **The executors write the cells `load` would write.** Each task writes its statements through Tripatha's own DAO, over a store that only captures what the DAO writes, so every cell is the one an online load writes. That includes every index and counter, the datatype markers and the graph markers.
 3. **Spark's shuffle sorts the cells.** Each task first adds up its counter deltas across its write calls. The shuffle then only sorts each partition in Accumulo's key order, and each file's writer adds up what is left and keeps a put's newest version. A sort alone costs less than Spark's own combining, which hashes every cell.
 4. **Each partition becomes one RFile** under `--work-dir`, written with its table's configuration. Totals of 1 are left out in the six counter families but `p`, as the loader's build leaves them out (the planner reads a missing counter as 1), and only when the totals are the store's: a new store or a generated dataset.
@@ -78,7 +78,7 @@ spark-submit \
         --work-dir s3a://accumulo/tripatha-bulk/smoke
 ```
 
-**Then the load.** For the loader's dataset at 500M triples, prepare the store first with the loader, then run the same dataset options in the job:
+**Then the load.** For the loader's dataset at 500M triples, prepare the store first with the loader, then run the same dataset options in the job. To measure the cluster afterwards with the join benchmark, load the benchmark's own dataset instead (`--text-index --geo-index`, and `--entity-index`): see [Measuring on a cluster](../tripatha.loader/README.md#measuring-on-a-cluster).
 
 ```bash
 tripatha.loader/run.sh prepare --table-prefix t500m_ --accumulo-properties accumulo-client.properties --triples 500M
@@ -109,7 +109,7 @@ Notes:
 - **Compressed input:** a `.gz` file can't be split, so one task reads it whole. Many files, or uncompressed or `.bz2` ones, read in parallel.
 - **Format:** N-Triples and N-Quads are read line by line. Convert Turtle, RDF/XML or JSON-LD to N-Quads first (for instance with `riot` or `rapper`).
 - **Labels:** N-Quads has no place for a visibility label, so `--visibility EXPR` gives every statement of the job the same one.
-- **Sizes:** `--file-size` (MB of cells before compression, 1024 by default) sets the size of a file and of a reduce task. A smaller size makes more, shorter reduce tasks, and more files per tablet (at most 50). The shuffle moves a little more than the 3.5 cells per statement the files hold (counters not yet added up across tasks), roughly 100 bytes each before Spark compresses them, and spills them to the executors' local disks.
+- **Sizes:** `--file-size` (MB of cells before compression, 1024 by default) sets the size of a file and of a reduce task. A smaller size makes more, shorter reduce tasks, and more files per tablet (at most the table's `table.file.max`). The shuffle moves a little more than the 3.5 cells per statement the files hold (counters not yet added up across tasks), roughly 100 bytes each before Spark compresses them, and spills them to the executors' local disks.
 - **Executors:** 4 cores and 12 GB each is a reasonable start. A task holds its counters to add up (about 80 MB) besides Spark's sort buffers.
 
 ## Measured

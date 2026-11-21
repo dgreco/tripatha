@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.tripatha.store.StoreRdfConfiguration;
 import org.tripatha.store.EvalStatsMutations;
 import org.tripatha.store.RyaTableMutationsFactory;
+import org.tripatha.store.spi.BulkImport;
 import org.tripatha.store.spi.Store;
 import org.tripatha.store.spi.RowMutation;
 import org.tripatha.store.index.GeoIndex;
@@ -225,6 +226,22 @@ public final class SplitPlanner {
             return row;
         }
         return Arrays.copyOf(row, common + 1);
+    }
+
+    /**
+     * The split points that give each of the entity index's shards a tablet or region of its own
+     * (a shard is one row). Where a split point ends its tablet (Accumulo), they are the shard rows
+     * but the last; where it starts one (HBase), the shard rows but the first.
+     */
+    public static SortedSet<byte[]> shardSplits(final Store store, final List<byte[]> shardRows) {
+        final List<byte[]> rows = new ArrayList<>(shardRows);
+        rows.sort(Arrays::compareUnsigned);
+        final SortedSet<byte[]> points = new TreeSet<>(Arrays::compareUnsigned);
+        if (rows.size() > 1) {
+            final boolean endsTablet = store.bulk().map(BulkImport::splitPointEndsTablet).orElse(false);
+            points.addAll(endsTablet ? rows.subList(0, rows.size() - 1) : rows.subList(1, rows.size()));
+        }
+        return points;
     }
 
     /** Adds the planned splits to tables that have fewer than planned. */
