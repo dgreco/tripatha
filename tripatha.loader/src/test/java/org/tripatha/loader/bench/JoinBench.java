@@ -149,7 +149,8 @@ public final class JoinBench {
                 } catch (final StoreCheck.Mismatch e) {
                     throw new IllegalArgumentException(e.getMessage() + ". Load it with the dataset options this benchmark uses: "
                             + "prepare and load (or build, or tripatha.spark's generate) with --table-prefix " + settings.prefix
-                            + " --triples " + settings.triples + " --text-index --geo-index" + (settings.entityIndex ? " --entity-index" : ""),
+                            + " --triples " + settings.triples + " --text-index --geo-index" + (settings.entityIndex ? " --entity-index" : "")
+                            + (settings.entityShards != null ? " --entity-shards " + settings.entityShards : ""),
                             e);
                 }
             } else {
@@ -255,6 +256,9 @@ public final class JoinBench {
         }
         if (settings.entityIndex) {
             a.add("--entity-index");
+        }
+        if (settings.entityShards != null) {
+            a.addAll(List.of("--entity-shards", settings.entityShards));
         }
         // How an external store is reached: the loader's own connection options.
         a.addAll(settings.store);
@@ -934,7 +938,7 @@ public final class JoinBench {
     record Settings(String triples, int warmup, int runs, int timeoutSeconds, int loadThreads, boolean profile, Path out,
             Path baseline, List<String> only, Map<String, String> conf, List<Variant> variants, boolean entityIndex,
             Path writeQueries, boolean loadOnly, boolean bulk, boolean fixedCost, String prefix, List<String> store,
-            boolean scanRates, int lookups) {
+            boolean scanRates, int lookups, String entityShards) {
         /** The loader's connection options that name an existing store, instead of a test cluster. */
         static final List<String> STORE_OPTIONS = List.of("--accumulo-properties", "--hbase-properties", "--hbase-site", "--hbase-conf",
                 "--hbase-user", "--rocksdb-path", "--backend");
@@ -951,6 +955,7 @@ public final class JoinBench {
                   --timeout 120        seconds per query run
                   --profile            record where the CPU time of the timed runs goes (JFR)
                   --entity-index       keep the entity index too (O23): loaded with it, or built on a kept store
+                  --entity-shards N    its shards (the loader's default by size otherwise), as the store was loaded
                   --only a,b           run only these queries
                   --conf key=value     a store configuration setting, for example query.join.batchsize=100
                   --variant NAME:k=v,k=v  run every query under this variant too, alternating with the others on the
@@ -990,6 +995,7 @@ public final class JoinBench {
             boolean scanRates = false;
             int lookups = 1_000;
             String prefix = "bench_";
+            String entityShards = null;
             final List<String> store = new ArrayList<>();
             Path out = Path.of("target", "bench");
             Path baseline = null;
@@ -1047,6 +1053,7 @@ public final class JoinBench {
                     case "--variant" -> variants.add(variant(v));
                     case "--lookups" -> lookups = Math.max(1, Integer.parseInt(v));
                     case "--table-prefix" -> prefix = v;
+                    case "--entity-shards" -> entityShards = v;
                     default -> {
                         if (!STORE_OPTIONS.contains(a)) {
                             throw new IllegalArgumentException("unknown option " + a);
@@ -1067,7 +1074,7 @@ public final class JoinBench {
                         + "(--accumulo-properties, --hbase-properties or --rocksdb-path)");
             }
             return new Settings(triples, warmup, runs, timeout, loadThreads, profile, out, baseline, only, conf, List.copyOf(variants),
-                    entityIndex, writeQueries, loadOnly, bulk, fixedCost, prefix, List.copyOf(store), scanRates, lookups);
+                    entityIndex, writeQueries, loadOnly, bulk, fixedCost, prefix, List.copyOf(store), scanRates, lookups, entityShards);
         }
 
         private static Variant variant(final String v) {
