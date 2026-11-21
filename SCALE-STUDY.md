@@ -179,13 +179,13 @@ All on a real cluster with NVMe disks, unless the row says otherwise.
 
 | # | Measurement | Feeds | Status |
 |---|---|---|---|
-| M1 | **Bytes on disk per table**, at 1B and 10B triples on Accumulo, and for a real dataset of at least 1B (D4). Replaces the README's test-load figure | section 4, cluster size, O3 | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster |
+| M1 | **Bytes on disk per table**, at 500M and 1B triples on Accumulo (the user's cluster holds 1B at most), and for a real dataset of up to 1B (D4). Replaces the README's test-load figure | section 4, cluster size, O3 | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster |
 | M2 | **Ingest on the current write path:** triples/s against the number of servers, and the compaction backlog. Also BACKENDS-STUDY.md's benchmark B0, which never ran | D2, section 4.5 | Planned: phase 3, on a cluster (2026-11-19) |
-| M3 | **The query suite:** lookups, star and chain joins, entity prefetch, text, geo, `stats:approxSize`, inference. p50 and p99, cold and warm, with scans and cells per query from the trace. Also `query.join.subjectranges` on and off, on a cold cache (O21) | the 1T run's acceptance | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster. The suite's queries return more rows as the store grows (star-in: 1,208 rows at 1M, 7,281 at 10M), so at 500M it measures large results. A 1T-relevant M3 also needs selective queries, whose results don't grow with the store: still to design |
+| M3 | **The query suite:** lookups, star and chain joins, entity prefetch, text, geo, `stats:approxSize`, inference. p50 and p99, cold and warm, with scans and cells per query from the trace. Also `query.join.subjectranges` on and off, on a cold cache (O21) | the 1T run's acceptance | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster. The suite's queries return more rows as the store grows (star-in: 1,208 rows at 1M, 7,281 at 10M), so at 500M it measures large results. Selective queries, whose results don't grow with the store, are what make the growth from 500M to 1B, and the extrapolation to 1T, measurable: still to design |
 | M4 | **Single-client scan rates**, Scanner and BatchScanner | R2, O7, D1 | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options and `--scan-rates` (`ScanRates`); runbook in tripatha.loader/README.md, first at 500M on the user's cluster |
 | M5 | **The dictionary spike,** offline, on a 1B-triple sample (section 6.5) | D9, O11 | Not started |
 | M6 | **Bulk spikes:**<br>• Accumulo RFiles with labels and counters, written from JDK 25 and imported into a live table (with a `LoadPlan`)<br>• RocksDB SST files with `merge` entries, ingested into a family that already has counters<br>• HBase HFiles with visibility tags through the expression resolver, and the same counter file imported twice in coprocessor mode<br>• Spark executors running `tripatha.api` code on JDK 25 | O3, O10, D5 | Done (2026-11-20, section 4.17) for Accumulo, RocksDB and HBase in both counter modes: `AccumuloBulkSpikeIT`, `RocksBulkSpikeTest`, `HBaseBulkSpikeIT`. The Spark spike wasn't run then: D5 (a) was taken with the plan. It ran on 2026-11-21 (section 4.28): Spark 4.2.1 on Java 25, with Hadoop 3.5, runs Tripatha's encoding in its tasks (`SparkJava25SpikeTest`), and the job's jar runs under the distribution's own `spark-submit` |
-| M7 | **Maintenance at 10B:** `DROP GRAPH` of a small and of a large graph, graph sizes, an index rebuild | O4, O5 | Not started (with phase 5) |
+| M7 | **Maintenance at 500M and 1B** (10B planned before; the user's cluster holds 1B at most): `DROP GRAPH` of a small and of a large graph, graph sizes, an index rebuild | O4, O5 | Not started (with phase 5) |
 | M8 | **A local join benchmark,** no cluster needed: a fixed query suite over a generated store of about 10M triples, on RocksDB and the Accumulo test cluster. Star and chain joins, entity prefetch, OPTIONAL, `LIMIT`, value and prefix filters, text and geo. Reports p50 and p99, a profile of where the time goes, and scans and cells per query from the trace. Checked in, so each optimization reports before and after | O13 to O17 | Done: `tripatha.loader/bench.sh` (`JoinBench`); baseline in section 4.6. Follow-ups: report CPU samples apart from threads blocked in native code, and compare settings back to back in one run (`--conf` variants) |
 | M9 | **IRI prefix codes, measured offline:** the generator's `spo`, `po` and `osp` rows written to RFiles as today and with prefix codes. Compares bytes sent, compressed size, and scan and decode time (section 6.9) | D11, O18 | Done 2026-11-16: results in section 6.9 |
 | M10 | **Class-star queries in the join benchmark:** entities of a large class selected by two to four constant properties, with and without a value filter and with attributes fetched. For example, people of one nationality working for one company, and observations of one property above a value. They measure O14, O22 and O23 | O14, O22, O23 | Done: seven `class-*` queries; baseline in section 4.7 |
@@ -198,9 +198,11 @@ All on a real cluster with NVMe disks, unless the row says otherwise.
 
 | Milestone | Needs | Exit | Status |
 |---|---|---|---|
-| 10B bulk build on Accumulo | O3 | the build is measured, with a time model to 1T | Planned: phase 3 (2026-11-19) |
-| 1T on Accumulo | O1 to O9, M1 to M7 | a report against the extrapolations of M1 to M4, with every gap explained | Planned: after phases 3 to 5 and the cluster measurements |
-| 1T on HBase | O10, D14 | the same report on HBase | Planned: after phases 3 to 5 and the cluster measurements |
+| 500M and 1B on Accumulo, the user's cluster | O28, M1 to M4 | the bulk build, sizes, scan rates and the suite measured at both sizes, with a time model to 1T fitted on them | Planned: first at 500M (runbook in tripatha.loader/README.md) |
+| 1T-shaped runs at 500M | the 500M store's measurements | 1T's tablets per table (`--splits 2100`) and entity shards (`--entity-shards 5000`) at 500M: its per-query fan-out and per-tablet work, without its data per tablet | Planned: after the 500M measurements |
+| 10B bulk build on Accumulo | O3 | the build is measured, with a time model to 1T | **Not possible on the available hardware:** the user's cluster holds 1B triples at most (2026-11-21). Replaced by the two rows above |
+| 1T on Accumulo | O1 to O9, M1 to M7 | a report against the extrapolations of M1 to M4, with every gap explained | **Not possible on the available hardware** (at most 1B). 1T stays the designs' target; their evidence is the extrapolation from 500M and 1B and the 1T-shaped runs |
+| 1T on HBase | O10, D14 | the same report on HBase | **Not possible on the available hardware**, as on Accumulo |
 
 ---
 
@@ -2055,7 +2057,7 @@ Every optimization must hold on Accumulo, HBase and RocksDB at 10^12 triples, no
 4. **O10**, the bulk build on HBase: label ordinals in the files, unique counter timestamps per import. Done (section 4.20).
 5. **O28**, the bulk build as a Spark job, for Accumulo (D5 (b), decided 2026-11-21 for the user's cluster: Spark 4.2 on Java 25, Accumulo on S3). Done (section 4.28): from the generator or from N-Triples and N-Quads files.
 
-**Exit:** the 10B bulk build on Accumulo measured, with a time model to 1T; the bulk builds of all three backends equal cell by cell to the online path.
+**Exit:** the 500M and 1B bulk builds measured on the user's cluster (its ceiling is 1B: no 10B run is possible), with a time model to 1T; the bulk builds of all three backends equal cell by cell to the online path.
 
 ### Phase 4: queries in the servers, on every backend
 
@@ -2082,8 +2084,11 @@ Every optimization must hold on Accumulo, HBase and RocksDB at 10^12 triples, no
 
 ### On a cluster, and conditional
 
-13. **Measurements on a real cluster** with NVMe disks (D10), Accumulo first (D3): M1, M3 and M4, then M2, and M7 with phase 5. They start at 500M triples on the user's cluster, loaded with O28. The tools run against a cluster's store: `bench.sh` with the loader's connection options, and `--scan-rates` for M4 (runbook in tripatha.loader/README.md, "Measuring on a cluster"). They settle the Accumulo and HBase defaults of O16 (lookup threads, fetching ahead), O21 on a cold cache, hash or subject-range shards for the entity index, and O18.
-14. **M5**, the dictionary spike on a 1B-triple sample (about 400 GB of disk), then D9 and perhaps O11.
+13. **Measurements on the user's cluster,** Accumulo first (D3). It holds 500M triples, 1B at most (2026-11-21), so no measurement goes above 1B, and 1T is reached by extrapolation:
+    - **Two sizes:** M1, M3 and M4 at 500M, then at 1B, then M2 and M7 at the same sizes. Two points per measure give each cost's growth with the store, and the time model to 1T is fitted on them.
+    - **1T's shapes at 500M:** a load with `--splits 2100` (1T's tablets per statement table, section 4.4) and `--entity-shards 5000` (1T's shards, one per 200M triples). It reproduces 1T's per-query fan-out over tablets and shards, and its per-tablet work, though not its data per tablet.
+    - They are loaded with O28. The tools run against a cluster's store: `bench.sh` with the loader's connection options, and `--scan-rates` for M4 (runbook in tripatha.loader/README.md, "Measuring on a cluster"). They settle the Accumulo and HBase defaults of O16 (lookup threads, fetching ahead), O21 on a cold cache, hash or subject-range shards for the entity index, and O18.
+14. **M5**, the dictionary spike on a 1B-triple sample (about 400 GB of disk), at the user's cluster's ceiling, then D9 and perhaps O11.
 15. **On demand:** O7b when a workload needs it; O12 isn't needed under D1 (a); O18 after M3.
 
 ---
@@ -2128,7 +2133,7 @@ The last two were one-off programs against the loader's classes; O2 moves them i
 - Spark's 2014 sort record (Daytona GraySort, 100 TB): quoted from memory, for scale only
 
 **Unconfirmed, settled by M1 to M7:**
-- bytes on disk per table at 1B and 10B;
+- bytes on disk per table at 500M and 1B;
 - the online path's ingest rate on a real cluster;
 - single-client scan rates;
 - the dictionary estimate of section 5.1;
