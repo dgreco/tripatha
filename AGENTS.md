@@ -202,7 +202,7 @@ The bulk build as a Spark job, for Accumulo (SCALE-STUDY.md O28, D5 (b), section
   - The `EmptyStore` must have the real store's tables (`JobSpec.existing`): a DAO refuses an index table its settings don't enable.
   - Every task parses the loader's arguments again (`JobSpec.options()`), with a size in triples given as entities.
 - **Layout** (`Shuffle.Layout`): one Spark partition per file.
-  - **Points:** each table's tablet split rows, plus sample quantiles within each tablet, for files of about `--file-size` (at most 50 per tablet). A point ends its range, as on Accumulo.
+  - **Points:** each table's tablet split rows, plus sample quantiles within each tablet, for files of about `--file-size` (at most the table's `table.file.max` per tablet: Accumulo compacts a tablet with more; `SparkBuild.filesPerTablet`). A point ends its range, as on Accumulo.
   - **The entity index's shard rows** are spread over `buckets` files by column hash; files of one tablet may overlap.
 - **Shuffle:** a task adds up its counters across write calls (`Tasks.COUNTERS` keys), and `repartitionAndSortWithinPartitions` sorts each partition in Accumulo's key order. `Tasks.write` adds up equal keys and keeps the newest put, as `Shuffle.Value.combine` decides (deterministic, so a task run twice writes the same file). Spark's own combining (`ShuffledRDD` with an aggregator) hashed every cell and was 1.6 times slower: don't bring it back.
 - **Counters left out:** `BulkBuild.leftOut`, shared with the loader, with `SKIP_SUBJECT_ONES` only when the totals are the store's: a generated dataset, or files into a new store (`job.properties` `fresh`). With `--append` only zeros.

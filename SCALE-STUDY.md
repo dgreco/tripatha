@@ -1413,7 +1413,7 @@ Oxigraph's four clear wins (S3, S6, F3, F4) are the per-lookup key work of secti
 
 **The job** (`SparkBuild`; [tripatha.spark/README.md](tripatha.spark/README.md)):
 - **The cells are the DAO's.** Each task writes its statements through a `RyaStoreDAO` over a `CapturingStore` of an empty store, which has the real store's tables and connects nowhere. So every cell is the one `load` writes: indexes, counters, datatype markers and graph markers. The executors need no Accumulo connection or credentials.
-- **The files are fixed first.** The driver samples the input (20,000 entities, or about 200,000 lines read by the executors). Each table's file boundaries are its tablets' split rows, plus quantiles of the sample within each tablet, so that a file holds about `--file-size` of cells, with at most 50 files per tablet (Accumulo's `table.bulk.max.tablet.files` is 100). The entity index's shard rows are spread over files by the hash of the column. A new store is split first, as `prepare` splits one.
+- **The files are fixed first.** The driver samples the input (20,000 entities, or about 200,000 lines read by the executors). Each table's file boundaries are its tablets' split rows, plus quantiles of the sample within each tablet, so that a file holds about `--file-size` of cells, with at most as many files per tablet as the table's `table.file.max` (15 by default; above it Accumulo compacts the tablet). The entity index's shard rows are spread over files by the hash of the column. A new store is split first, as `prepare` splits one.
 - **The shuffle only sorts.** Each task adds up its counters across its write calls (up to 524,288 keys), and the shuffle sorts each partition in Accumulo's key order. Each file's writer adds up the cells of one key and keeps a put's newest version. Totals of 1 are left out in the six counter families but `p`, by the build's own rule (`BulkBuild.leftOut`), and only where the totals are the store's: a generated dataset, or files into a new store.
 - **The files go to Accumulo's own volume.** Executors write the RFiles under `--work-dir`, with each table's configuration. Accumulo's bulk import refuses a directory "not in the same file system as any volume configured for Accumulo" (`PrepBulkImport`), so with Accumulo on S3 the work directory is a prefix of the same bucket. Only the finished files go to S3: the shuffle's spills stay on the executors' disks.
 - **Each file is imported once.** The driver imports table by table, with load plans naming each file's rows. The work directory records the job's state:
@@ -1445,7 +1445,9 @@ Oxigraph's four clear wins (S3, S6, F3, F4) are the per-lookup key work of secti
 
 **Next, on the user's cluster:** `smoke`, then `generate` at 500M (M2's bulk figure, and M1's bytes on disk at that size), then a real dataset through `files` (D4 (b)).
 
-**Open at larger sizes:** files are capped at 50 per tablet, but Accumulo compacts a tablet with more than `table.file.max` files (15 by default). With tablets of 10 GB, as at 1T, every tablet would compact after the import. At 500M the floor of 4 tablets per server keeps them to a few files each. Before 10B, take the cap from each table's own `table.file.max`, which the job already reads with the table's configuration.
+**Files per tablet:** at most the table's `table.file.max` (15 by default), read with the table's configuration: Accumulo compacts a tablet that holds more. With tablets of 10 GB, as at 1T, a tablet's files are then about 700 MB each.
+
+**The entity index's shards** get a tablet each (`SplitPlanner.shardSplits`, shared with `prepare`). Before 2026-11-21 `prepare` split at every shard row but the first, which is right on HBase, where a split row starts a region. On Accumulo a split row ends its tablet, so the first tablet held two shards and the last none. Stores prepared before then keep that layout; adding the first shard row as a split fixes one.
 
 ---
 

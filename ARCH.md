@@ -1948,7 +1948,7 @@ flowchart LR
 ```
 
 - **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up in the tasks and, after the sort, by each file's writer. Totals of 1 are left out by `BulkBuild.leftOut`, and only where the totals are the store's.
-- **Files:** each table's tablets, cut further at sampled rows into files of about `--file-size` (at most 50 per tablet). The entity index's shard rows are spread by column hash. The RFiles must be on one of Accumulo's volumes, since Accumulo imports only from those.
+- **Files:** each table's tablets, cut further at sampled rows into files of about `--file-size` (at most the table's `table.file.max` per tablet, 15 by default). The entity index's shard rows are spread by column hash. The RFiles must be on one of Accumulo's volumes, since Accumulo imports only from those.
 - **Once each:** one timestamp per job, files named after their table and range, no speculation. Once an import starts, the files are never written again; a file that is gone was imported, and a directory that still holds Accumulo's `loadmap.json` is not imported again.
 - **Files as input:** read by line in parallel; each blank node label is prefixed with its file's id, so every split of a file agrees on it; bad lines are counted and left out up to a limit; `--distinct` drops repeats; `--visibility` labels the job's statements.
 - **`smoke`** checks a cluster before a build: executors write an RFile each under the work directory, and the driver imports and reads them back.
