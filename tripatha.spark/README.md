@@ -31,8 +31,10 @@ Only the finished RFiles go to S3. The shuffle's spills stay on the executors' l
 
 ## Requirements on the cluster
 
-- **The work directory must be on one of Accumulo's volumes** (`instance.volumes`): Accumulo imports only from a file system it stores on, and moves the files into the table. With Accumulo on S3, use a prefix of the same bucket, for instance `s3a://accumulo/tripatha-bulk/run-1`.
-- **The executors need Hadoop's S3 connector** (`hadoop-aws` 3.5.0 and the AWS SDK bundle it names) and its settings. With Ceph or another S3-compatible store, path-style access is usually needed:
+- **The work directory must be on one of Accumulo's volumes** (`instance.volumes`): Accumulo imports only from a file system it stores on, and moves the files into the table.
+  - **With Accumulo on a shared POSIX volume** (CephFS or NFS, mounted in every pod, `instance.volumes=file:///var/accumulo/data`): mount the same volume in the Spark pods at the same path, and use a directory on it, for instance `file:///var/accumulo/data/tripatha-bulk/run-1`. The import is then a rename. See [Run on Kubernetes without a Spark image](#run-on-kubernetes-without-a-spark-image).
+  - **With Accumulo on S3:** use a prefix of the same bucket, for instance `s3a://accumulo/tripatha-bulk/run-1`.
+- **With S3, the executors need Hadoop's S3 connector** (`hadoop-aws` 3.5.0 and the AWS SDK bundle it names) and its settings. With Ceph or another S3-compatible store, path-style access is usually needed:
 
   ```
   spark.hadoop.fs.s3a.endpoint            https://rgw.example.internal
@@ -111,6 +113,55 @@ Notes:
 - **Labels:** N-Quads has no place for a visibility label, so `--visibility EXPR` gives every statement of the job the same one.
 - **Sizes:** `--file-size` (MB of cells before compression, 1024 by default) sets the size of a file and of a reduce task. A smaller size makes more, shorter reduce tasks, and more files per tablet (at most the table's `table.file.max`). The shuffle moves a little more than the 3.5 cells per statement the files hold (counters not yet added up across tasks), roughly 100 bytes each before Spark compresses them, and spills them to the executors' local disks.
 - **Executors:** 4 cores and 12 GB each is a reasonable start. A task holds its counters to add up (about 80 MB) besides Spark's sort buffers.
+
+## Run on Kubernetes without a Spark image
+
+Where Accumulo stores its files on a shared volume (CephFS, NFS) and no Spark image runs Java 25, `k8s/` runs the job on stock `eclipse-temurin:25-jre` pods:
+- **Spark** and the tools sit on Accumulo's own volume, under `DATA_PATH/tripatha-tools`.
+- **A standalone Spark cluster** (`spark-standalone.yaml`) runs one master and one worker per node. Each worker has node-local disk for the shuffle and mounts the volume.
+- **A driver pod** (`driver-pod.yaml`) runs the loader, the benchmark or the Spark job in client mode, with Accumulo's password from a secret.
+
+Every object is labelled `app=tripatha`: `kubectl -n NS delete all,pod -l app=tripatha` removes them. The variables, for Accumulo in namespace `accumulo` with its volume `accumulo-data` at `/var/accumulo/data`:
+
+```bash
+export NAMESPACE=accumulo DATA_PVC=accumulo-data DATA_PATH=/var/accumulo/data
+export WORKERS=4 WORKER_CORES=2 WORKER_MEMORY=3500m WORKER_POD_MEMORY=4608Mi WORKER_DISK=55Gi
+export ACCUMULO_INSTANCE=accumulo ACCUMULO_ZOOKEEPERS=accumulo-zookeeper-server.accumulo.svc.cluster.local:2282 ACCUMULO_USER=root
+export SECRET=accumulo-secret SECRET_KEY=root-password DRIVER_MEMORY=2Gi DRIVER_HEAP=1280m EXECUTOR_MEMORY=3g
+V='${NAMESPACE} ${DATA_PVC} ${DATA_PATH} ${WORKERS} ${WORKER_CORES} ${WORKER_MEMORY} ${WORKER_POD_MEMORY} ${WORKER_DISK} ${NAME} ${ACCUMULO_INSTANCE} ${ACCUMULO_ZOOKEEPERS} ${ACCUMULO_USER} ${SECRET} ${SECRET_KEY} ${DRIVER_MEMORY} ${DRIVER_HEAP} ${EXECUTOR_MEMORY} ${DRIVER_COMMAND}'
+K=tripatha.spark/k8s
+```
+
+`envsubst "$V"` substitutes only these, so the pods' own `$POD_IP` and `$A` stay. Then:
+
+```bash
+# 1. The tools (the job jar, the loader, the benchmark) and Spark 4.2.1, checked, onto the volume
+$K/pack-tools.sh /tmp/tripatha-tools.tar.gz
+curl -fLO https://dlcdn.apache.org/spark/spark-4.2.1/spark-4.2.1-bin-hadoop3.tgz
+curl -fsL https://archive.apache.org/dist/spark/spark-4.2.1/spark-4.2.1-bin-hadoop3.tgz.sha512 | shasum -a 512 -c -
+envsubst "$V" < $K/stage-pod.yaml | kubectl apply -f -
+kubectl -n $NAMESPACE wait --for=condition=Ready pod/tripatha-stage
+kubectl -n $NAMESPACE cp spark-4.2.1-bin-hadoop3.tgz tripatha-stage:$DATA_PATH/tripatha-tools/
+kubectl -n $NAMESPACE cp /tmp/tripatha-tools.tar.gz tripatha-stage:$DATA_PATH/tripatha-tools/
+kubectl -n $NAMESPACE exec tripatha-stage -- bash -c "cd $DATA_PATH/tripatha-tools && tar xzf spark-4.2.1-bin-hadoop3.tgz && tar xzf tripatha-tools.tar.gz && rm *.tgz *.tar.gz"
+kubectl -n $NAMESPACE delete pod tripatha-stage
+
+# 2. The Spark cluster: check that the master's log shows one "Registering worker" per node
+envsubst "$V" < $K/spark-standalone.yaml | kubectl apply -f -
+
+# 3. A driver pod per step: here the cluster check, then prepare and generate at 500M
+NAME=tripatha-smoke DRIVER_COMMAND='submit smoke --table-prefix t_ --accumulo-properties $A --work-dir file://'$DATA_PATH'/tripatha-bulk/smoke' \
+  envsubst "$V" < $K/driver-pod.yaml | kubectl apply -f -
+kubectl -n $NAMESPACE logs -f tripatha-smoke
+DS="--table-prefix b500m_ --triples 500M --text-index --geo-index --entity-index"
+NAME=tripatha-load DRIVER_COMMAND="loader prepare --accumulo-properties \$A $DS && submit generate --accumulo-properties \$A $DS --work-dir file://$DATA_PATH/tripatha-bulk/b500m --tasks 256 --file-size 512" \
+  envsubst "$V" < $K/driver-pod.yaml | kubectl apply -f -
+```
+
+- **Leave the cluster room:** each worker is limited to `WORKER_CORES`. Where Ceph or ZooKeeper run on the same nodes, a Spark job that takes every idle core starves them. On a cluster of four 8-core nodes, with 4 cores per worker and no limit, ZooKeeper's fsyncs reached 7.5 s within 20 minutes, a ZooKeeper session expired, and Accumulo's compaction coordinator crashed. With 2 cores per worker the stalls went on there: they came from one slow Ceph OSD (`BLUESTORE_SLOW_OP_ALERT`), whose commit latency rose from about 10 ms to 12–19 s under write bursts while the others stayed under 15 ms. Check `ceph health detail` and `ceph osd perf` before a large load, and keep workers off a node whose OSD is slow (a `nodeAffinity`). Watch ZooKeeper's log for `fsync-ing the write ahead log … took` during a load. The driver pod gives each executor a whole worker (`spark.executor.cores` = `WORKER_CORES`).
+- **Sizing:** workers and drivers must fit the nodes' free memory requests (`kubectl describe nodes`), which on a shared cluster can be much less than the nodes' memory. The figures above fit nodes of 32 GB that run Accumulo and other services: 4.5 GiB per worker (an executor of 3 GB and 4 cores), 2 GiB for the driver.
+- **Shuffle disk:** at 10M triples with every index the job shuffled 3.5 GB (92M records, lz4). At 500M on four workers, plan for 30–45 GB of local disk per node (with zstd: 13 GB per node after the first 16 minutes of the map stage). Each worker's `emptyDir` must hold its share; a node out of disk evicts the pod.
+- **The driver** runs in client mode: the executors connect to it on its pod address (ports 7078 and 7079).
 
 ## Measured
 

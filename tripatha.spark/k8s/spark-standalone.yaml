@@ -1,0 +1,116 @@
+# Copyright 2026 David Greco
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# A standalone Spark 4.2 cluster for the Spark build, on stock Java 25 pods: no Spark image needed.
+# Spark and the job's jar sit on Accumulo's own shared volume (CephFS, NFS: ReadWriteMany), which every
+# pod mounts at the same path; the executors write the RFiles there, so Accumulo imports them by rename.
+# Render with envsubst (see README.md, "Run on Kubernetes without a Spark image"), then kubectl apply.
+#
+#   NAMESPACE     Accumulo's namespace (the volume's claim is namespaced)
+#   DATA_PVC      the claim of Accumulo's volume, for instance accumulo-data
+#   DATA_PATH     where Accumulo mounts it, the path of instance.volumes, for instance /var/accumulo/data
+#   WORKERS       one worker per node
+#   WORKER_CORES, WORKER_MEMORY (for executors, as Spark reads it: 3500m), WORKER_POD_MEMORY (the pod's), WORKER_DISK
+apiVersion: v1
+kind: Service
+metadata:
+  name: tripatha-spark-master
+  namespace: ${NAMESPACE}
+  labels: {app: tripatha, tripatha-role: spark-master}
+spec:
+  clusterIP: None
+  selector: {app: tripatha, tripatha-role: spark-master}
+  ports:
+    - {name: rpc, port: 7077}
+    - {name: ui, port: 8080}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tripatha-spark-master
+  namespace: ${NAMESPACE}
+  labels: {app: tripatha, tripatha-role: spark-master}
+spec:
+  serviceName: tripatha-spark-master
+  replicas: 1
+  selector:
+    matchLabels: {app: tripatha, tripatha-role: spark-master}
+  template:
+    metadata:
+      labels: {app: tripatha, tripatha-role: spark-master}
+    spec:
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: ${DATA_PVC}}
+      containers:
+        - name: master
+          image: eclipse-temurin:25-jre
+          # The headless service gives the pod a stable name the workers and drivers reach.
+          command: [bash, -c, "exec ${DATA_PATH}/tripatha-tools/spark-4.2.1-bin-hadoop3/bin/spark-class org.apache.spark.deploy.master.Master --host tripatha-spark-master-0.tripatha-spark-master.${NAMESPACE}.svc.cluster.local --port 7077 --webui-port 8080"]
+          env:
+            - {name: SPARK_HOME, value: "${DATA_PATH}/tripatha-tools/spark-4.2.1-bin-hadoop3"}
+            - {name: SPARK_DAEMON_MEMORY, value: 1g}
+          ports:
+            - {containerPort: 7077}
+            - {containerPort: 8080}
+          volumeMounts:
+            - {name: data, mountPath: "${DATA_PATH}"}
+          resources:
+            requests: {cpu: 250m, memory: 1536Mi}
+            limits: {memory: 2Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tripatha-spark-worker
+  namespace: ${NAMESPACE}
+  labels: {app: tripatha, tripatha-role: spark-worker}
+spec:
+  replicas: ${WORKERS}
+  selector:
+    matchLabels: {app: tripatha, tripatha-role: spark-worker}
+  template:
+    metadata:
+      labels: {app: tripatha, tripatha-role: spark-worker}
+    spec:
+      # One worker per node: the shuffle spills to the node's own disk.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: {app: tripatha, tripatha-role: spark-worker}
+              topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: ${DATA_PVC}}
+        - name: local
+          emptyDir: {sizeLimit: ${WORKER_DISK}}
+      containers:
+        - name: worker
+          image: eclipse-temurin:25-jre
+          command: [bash, -c, "exec ${DATA_PATH}/tripatha-tools/spark-4.2.1-bin-hadoop3/bin/spark-class org.apache.spark.deploy.worker.Worker --host $POD_IP --cores ${WORKER_CORES} --memory ${WORKER_MEMORY} --work-dir /spark-local/work spark://tripatha-spark-master-0.tripatha-spark-master.${NAMESPACE}.svc.cluster.local:7077"]
+          env:
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - {name: SPARK_HOME, value: "${DATA_PATH}/tripatha-tools/spark-4.2.1-bin-hadoop3"}
+            - {name: SPARK_LOCAL_DIRS, value: /spark-local}
+            - {name: SPARK_DAEMON_MEMORY, value: 512m}
+          volumeMounts:
+            - {name: data, mountPath: "${DATA_PATH}"}
+            - {name: local, mountPath: /spark-local}
+          # A CPU limit: where Ceph or ZooKeeper share the nodes, a worker that takes every idle core
+          # starves them (ZooKeeper's fsyncs reached 7.5 s, and Accumulo's sessions expired).
+          resources:
+            requests: {cpu: "${WORKER_CORES}", memory: "${WORKER_POD_MEMORY}"}
+            limits: {cpu: "${WORKER_CORES}", memory: "${WORKER_POD_MEMORY}"}

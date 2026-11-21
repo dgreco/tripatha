@@ -1,0 +1,78 @@
+# Copyright 2026 David Greco
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# A driver pod: runs DRIVER_COMMAND with the tools on Accumulo's shared volume, then exits. In the command:
+#   loader ARGS   the loader (check, prepare, drop, ...)
+#   bench ARGS    the join benchmark
+#   submit ARGS   the Spark build (generate, files, smoke) on the standalone cluster, in client mode
+#   $A            Accumulo's client properties, written by the pod (the password from SECRET's KEY)
+# For example DRIVER_COMMAND='submit smoke --table-prefix t_ --accumulo-properties $A --work-dir file://${DATA_PATH}/tripatha-bulk/smoke'.
+# Render with envsubst and the list of variables below (so $A and $POD_IP are left for the pod), then kubectl apply.
+#
+#   NAMESPACE, DATA_PVC, DATA_PATH   as for spark-standalone.yaml
+#   NAME                             the pod's name
+#   ACCUMULO_INSTANCE, ACCUMULO_ZOOKEEPERS, ACCUMULO_USER, SECRET, SECRET_KEY
+#   DRIVER_MEMORY (the pod's, 2Gi), DRIVER_HEAP (1280m), EXECUTOR_MEMORY (at most the workers' memory: 3g),
+#   WORKER_CORES (as for spark-standalone.yaml: an executor takes a whole worker)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${NAME}
+  namespace: ${NAMESPACE}
+  labels: {app: tripatha, tripatha-role: driver}
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: data
+      persistentVolumeClaim: {claimName: ${DATA_PVC}}
+  containers:
+    - name: driver
+      image: eclipse-temurin:25-jre
+      command:
+        - bash
+        - -c
+        - |
+          set -eu
+          cat > /tmp/accumulo-client.properties <<P
+          instance.name=${ACCUMULO_INSTANCE}
+          instance.zookeepers=${ACCUMULO_ZOOKEEPERS}
+          auth.type=password
+          auth.principal=${ACCUMULO_USER}
+          P
+          A=/tmp/accumulo-client.properties
+          S=${DATA_PATH}/tripatha-tools/spark-4.2.1-bin-hadoop3
+          T=${DATA_PATH}/tripatha-tools/tools
+          loader() { "$T/bin/loader" "$@"; }
+          bench() { "$T/bin/bench" "$@"; }
+          submit() {
+            "$S/bin/spark-submit" --master spark://tripatha-spark-master-0.tripatha-spark-master.${NAMESPACE}.svc.cluster.local:7077 \
+              --deploy-mode client --driver-memory ${DRIVER_HEAP} \
+              --conf spark.driver.host=$POD_IP --conf spark.driver.bindAddress=0.0.0.0 \
+              --conf spark.driver.port=7078 --conf spark.blockManager.port=7079 \
+              --conf spark.executor.memory=${EXECUTOR_MEMORY} --conf spark.executor.cores=${WORKER_CORES} --conf spark.ui.enabled=false \
+              --conf spark.io.compression.codec=zstd \
+              --class org.tripatha.spark.SparkBuild "$T/tripatha.spark-job.jar" "$@"
+          }
+          ${DRIVER_COMMAND}
+      env:
+        - name: POD_IP
+          valueFrom: {fieldRef: {fieldPath: status.podIP}}
+        - name: TRIPATHA_ACCUMULO_PASSWORD
+          valueFrom: {secretKeyRef: {name: "${SECRET}", key: "${SECRET_KEY}"}}
+        - {name: TRIPATHA_HEAP, value: "${DRIVER_HEAP}"}
+      volumeMounts:
+        - {name: data, mountPath: "${DATA_PATH}"}
+      resources:
+        requests: {cpu: "1", memory: "${DRIVER_MEMORY}"}
+        limits: {memory: "${DRIVER_MEMORY}"}
