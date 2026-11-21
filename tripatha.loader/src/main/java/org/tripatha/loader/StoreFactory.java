@@ -21,11 +21,11 @@ import org.tripatha.rocksdb.RocksStore;
 import org.tripatha.store.spi.Store;
 
 /** Opens the store of {@code --backend}: Accumulo (the default) or HBase. */
-final class StoreFactory {
+public final class StoreFactory {
     private StoreFactory() {
     }
 
-    static Store open(final LoaderOptions o) {
+    public static Store open(final LoaderOptions o) {
         return switch (o.backend()) {
             case "accumulo" -> AccumuloStore.owning(ClientFactory.create(o));
             case "hbase" -> {
