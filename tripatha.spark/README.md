@@ -78,7 +78,7 @@ spark-submit \
         --work-dir s3a://accumulo/tripatha-bulk/smoke
 ```
 
-**Then the load.** For the loader's dataset at 500M triples, prepare the store first with the loader, then run the same dataset options in the job:
+**Then the load.** For the loader's dataset at 500M triples, prepare the store first with the loader, then run the same dataset options in the job. To measure the cluster afterwards with the join benchmark, load the benchmark's own dataset instead (`--text-index --geo-index`, and `--entity-index`): see [Measuring on a cluster](../tripatha.loader/README.md#measuring-on-a-cluster).
 
 ```bash
 tripatha.loader/run.sh prepare --table-prefix t500m_ --accumulo-properties accumulo-client.properties --triples 500M
