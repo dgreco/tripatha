@@ -1467,7 +1467,7 @@ Oxigraph's four clear wins (S3, S6, F3, F4) are the per-lookup key work of secti
   - **Other labels:** a 1 under label A was left out next to the unlabelled cell of the same counter. A reader with A then read one too low: 1,771 counters with label A in that dataset, mostly objects and pairs.
   - **The fix:** a 1 now stays out only when it is its counter's only cell, of a counter the reference data doesn't count (regenerated from the dataset, so a resume decides alike). This holds in the DAO's drain, the loader's merge, Spark's `generate` and `files`, `verify` and `dry-run`.
   - **The test:** `SparkBuildIT.everyBuildReadsAsALoadOfEveryCounter` reads every build against a `--stats-ones keep` load, for each set of labels. Switching off either check fails it.
-  - **Stores built before the fix:** `b500m_` (parts 0 and 1) and `t10m_` keep the undercounts. They only steer plans.
+  - **Stores built before the fix:** `t10m_`, from one whole `generate`, has the reference-data case. `b500m_`'s parts 0 and 1 are exact: the parts rule kept every object and pair 1, and the dataset has no labels. Parts 2-4 can follow with either tools.
 
 **Files per tablet:** at most the table's `table.file.max` (15 by default), read with the table's configuration: Accumulo compacts a tablet that holds more. With tablets of 10 GB, as at 1T, a tablet's files are then about 700 MB each.
 

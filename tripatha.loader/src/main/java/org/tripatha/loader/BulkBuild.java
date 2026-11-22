@@ -453,8 +453,10 @@ public final class BulkBuild {
         private final java.util.function.Consumer<T> keep;
         /** The rows of {@code rule.countedElsewhere()}: a cheap first test, before the counter's full key is built. */
         private final Set<java.nio.ByteBuffer> elsewhereRows;
-        private final List<T> cells = new ArrayList<>();
-        private final List<Long> totals = new ArrayList<>();
+        // One counter's cells and totals: nearly always one, so arrays, not boxed lists.
+        private Object[] cells = new Object[4];
+        private long[] totals = new long[4];
+        private int n;
         private byte[] row;
         private byte[] family;
         private byte[] qualifier;
@@ -470,40 +472,48 @@ public final class BulkBuild {
 
         /** A cell of the range, in order, with its total. */
         public void add(final byte[] row, final byte[] family, final byte[] qualifier, final long total, final T cell) {
-            if (this.row != null && !(java.util.Arrays.equals(row, this.row) && java.util.Arrays.equals(family, this.family)
+            if (n > 0 && !(java.util.Arrays.equals(row, this.row) && java.util.Arrays.equals(family, this.family)
                     && java.util.Arrays.equals(qualifier, this.qualifier))) {
                 flush();
             }
-            if (this.row == null) {
+            if (n == 0) {
                 this.row = row;
                 this.family = family;
                 this.qualifier = qualifier;
+            } else if (n == cells.length) {
+                cells = java.util.Arrays.copyOf(cells, n * 2);
+                totals = java.util.Arrays.copyOf(totals, n * 2);
             }
-            cells.add(cell);
-            totals.add(total);
+            cells[n] = cell;
+            totals[n] = total;
+            n++;
         }
 
         /** Decides the counter held, if any. */
+        @SuppressWarnings("unchecked")
         public void flush() {
-            if (row == null) {
+            if (n == 0) {
                 return;
             }
             int nonZero = 0;
-            for (final long t : totals) {
-                if (t != 0) {
+            for (int i = 0; i < n; i++) {
+                if (totals[i] != 0) {
                     nonZero++;
                 }
             }
-            // Most counters' rows aren't the reference data's: the full key only for those that are.
-            final boolean elsewhere = !elsewhereRows.isEmpty() && elsewhereRows.contains(java.nio.ByteBuffer.wrap(row))
-                    && rule.countedElsewhere().contains(counterRead(row, family, qualifier));
-            for (int i = 0; i < cells.size(); i++) {
-                if (!leftOut(family, totals.get(i), nonZero, elsewhere, rule.ones(), rule.partTotals())) {
-                    keep.accept(cells.get(i));
+            for (int i = 0; i < n; i++) {
+                boolean out = leftOut(family, totals[i], nonZero, false, rule.ones(), rule.partTotals());
+                // Only a 1 the rule would leave out needs the reference data's verdict: most rows aren't theirs.
+                if (out && totals[i] != 0 && !elsewhereRows.isEmpty() && elsewhereRows.contains(java.nio.ByteBuffer.wrap(row))
+                        && rule.countedElsewhere().contains(counterRead(row, family, qualifier))) {
+                    out = false;
+                }
+                if (!out) {
+                    keep.accept((T) cells[i]);
                 }
             }
-            cells.clear();
-            totals.clear();
+            java.util.Arrays.fill(cells, 0, n, null);
+            n = 0;
             row = null;
         }
     }

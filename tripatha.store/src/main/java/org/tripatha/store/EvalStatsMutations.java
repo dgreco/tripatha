@@ -155,8 +155,20 @@ public final class EvalStatsMutations {
      */
     public static final class CounterBatch {
         private final Map<CounterKey, long[]> sums = new HashMap<>();
+        /** The label of every statement added since the last drain, while they share one. */
+        private byte[] label;
+        /** Whether those statements carry more than one label: only then can a counter have two cells. */
+        private boolean labels;
 
         public void add(final RyaStatement stmt, final long delta) {
+            if (!labels) {
+                final byte[] l = stmt.getColumnVisibility() == null ? EMPTY : stmt.getColumnVisibility();
+                if (label == null) {
+                    label = l;
+                } else if (!java.util.Arrays.equals(label, l)) {
+                    labels = true;
+                }
+            }
             for (final CounterKey key : counterKeys(stmt)) {
                 sums.computeIfAbsent(key, k -> new long[1])[0] += delta;
             }
@@ -170,6 +182,17 @@ public final class EvalStatsMutations {
         /** Each pending counter and its sum, without clearing them (for reports, such as the loader's dry run). */
         public void forEachSum(final java.util.function.ObjLongConsumer<CounterKey> action) {
             sums.forEach((key, sum) -> action.accept(key, sum[0]));
+        }
+
+        /** {@link #cellsPerCounter()} for the subject counters only, the ones a policy may leave out. */
+        private Map<Counter, int[]> subjectCellsPerCounter() {
+            final Map<Counter, int[]> cells = new HashMap<>();
+            sums.forEach((key, sum) -> {
+                if (sum[0] != 0 && CounterPolicy.isSubjectCounter(key.family())) {
+                    cells.computeIfAbsent(key.counter(), c -> new int[1])[0]++;
+                }
+            });
+            return cells;
         }
 
         /** How many cells each pending counter has with a sum other than 0: one per label. */
@@ -193,12 +216,15 @@ public final class EvalStatsMutations {
          * {@code policy} leaves out, and clears them.
          */
         public List<RowMutation> drain(final CounterPolicy policy) {
-            final Map<Counter, int[]> cells = policy == CounterPolicy.ALL ? Map.of() : cellsPerCounter();
+            // With one label for the whole batch every counter has one cell: no need to count them.
+            final Map<Counter, int[]> cells = policy == CounterPolicy.ALL || !labels ? null : subjectCellsPerCounter();
             final Map<String, RowMutation> byRow = new LinkedHashMap<>();
             for (final Map.Entry<CounterKey, long[]> e : sums.entrySet()) {
                 final long sum = e.getValue()[0];
                 final CounterKey key = e.getKey();
-                if (sum == 0 || policy != CounterPolicy.ALL && policy.skips(key, sum, cells.get(key.counter())[0])) {
+                if (sum == 0 || policy != CounterPolicy.ALL && sum == 1
+                        && policy.skips(key, sum, cells == null || !CounterPolicy.isSubjectCounter(key.family()) ? 1
+                                : cells.get(key.counter())[0])) {
                     continue;
                 }
                 final RowMutation m = byRow.computeIfAbsent(key.row(),
@@ -208,6 +234,8 @@ public final class EvalStatsMutations {
                         key.visibility().getBytes(StandardCharsets.ISO_8859_1), sum);
             }
             sums.clear();
+            label = null;
+            labels = false;
             return new ArrayList<>(byRow.values());
         }
     }
