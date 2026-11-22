@@ -361,6 +361,7 @@ public final class SparkBuild {
         } else {
             spec.addPolicy = o.statsOnes();
             spec.leftOutPolicy = o.statsOnes();
+            spec.partTotals = o.parts() > 1;
         }
         spec.existing = existing(conf);
         spec.tableProperties = new HashMap<>();

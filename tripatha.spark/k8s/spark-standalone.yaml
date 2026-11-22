@@ -22,6 +22,8 @@
 #   DATA_PATH     where Accumulo mounts it, the path of instance.volumes, for instance /var/accumulo/data
 #   WORKERS       one worker per node
 #   WORKER_CORES, WORKER_MEMORY (for executors, as Spark reads it: 3500m), WORKER_POD_MEMORY (the pod's), WORKER_DISK
+#   AVOID_NODES   nodes that get no worker, comma-separated (kubernetes.io/hostname), or none: a node whose
+#                 disk is also a slow Ceph OSD's, since the shuffle spills to the node's own disk
 apiVersion: v1
 kind: Service
 metadata:
@@ -84,8 +86,13 @@ spec:
     metadata:
       labels: {app: tripatha, tripatha-role: spark-worker}
     spec:
-      # One worker per node: the shuffle spills to the node's own disk.
+      # One worker per node: the shuffle spills to the node's own disk. None on AVOID_NODES.
       affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [${AVOID_NODES}]}
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
