@@ -52,9 +52,11 @@ import org.tripatha.api.RdfCloudTripleStoreConstants.TABLE_LAYOUT;
 import org.tripatha.api.domain.RyaSchema;
 import org.tripatha.api.domain.RyaStatement;
 import org.tripatha.api.resolver.RyaTripleContext;
+import org.tripatha.loader.BulkBuild;
 import org.tripatha.loader.LoaderMain;
 import org.tripatha.loader.LoaderOptions;
 import org.tripatha.loader.StoreCheck;
+import org.tripatha.loader.gen.EntityGenerator;
 import org.tripatha.store.EvalStatsMutations;
 import org.tripatha.store.RyaStoreDAO;
 import org.tripatha.store.StoreRdfConfiguration;
@@ -167,66 +169,144 @@ class SparkBuildIT extends StoreITBase {
     }
 
     /**
-     * Two {@code generate} parts against a DAO {@code load}: the same cells, and the same counters
-     * as the planner reads them. Not against the whole build: it leaves out a total of 1 that the
-     * reference data {@code prepare} wrote also counts (an entity's label word that is also a
-     * class's), so it reads 1 where the store holds 2.
+     * Every way of building the generated dataset reads, counter by counter and for every reader,
+     * as a load that writes every counter ({@code --stats-ones keep}): a load that leaves subject
+     * counters of 1 out, the loader's build, and Spark's generate in one part and in two. A 1 may
+     * stay out only when it is its counter's only cell and nothing else counts that counter: not
+     * the reference data {@code prepare} wrote, not another label's cell, not another part.
      */
     @Test
-    void generateInPartsWritesWhatALoadWrites() throws Exception {
+    void everyBuildReadsAsALoadOfEveryCounter() throws Exception {
+        final String truth = getTablePrefix() + "k_";
         final String loaded = getTablePrefix() + "l_";
-        final String sparked = getTablePrefix();
-        for (final String prefix : List.of(loaded, sparked)) {
+        final String built = getTablePrefix() + "b_";
+        final String whole = getTablePrefix() + "w_";
+        final String parts = getTablePrefix();
+        loader("prepare", dataset(truth, "--splits", "7", "--stats-ones", "keep"));
+        final Map<String, Long> referenceOnly = reads(truth + "eval", AUTHS);
+        loader("load", dataset(truth, "--threads", "4", "--stats-ones", "keep", "--progress-file", dir.resolve("k.progress").toString()));
+        for (final String prefix : List.of(loaded, built, whole, parts)) {
             loader("prepare", dataset(prefix, "--splits", "7"));
         }
-        loader("load", dataset(loaded, "--threads", "4", "--progress-file", dir.resolve("load.progress").toString()));
+        loader("load", dataset(loaded, "--threads", "4", "--progress-file", dir.resolve("l.progress").toString()));
+        loader("build", dataset(built, "--threads", "4", "--work-dir", dir.resolve("build").toString()));
+        final List<String> one = new ArrayList<>(List.of("generate"));
+        one.addAll(dataset(whole, "--work-dir", dir.resolve("spark-w").toString(), "--file-size", "0.05", "--tasks", "5"));
+        assertTrue(spark(one.toArray(new String[0])).contains("Import: "));
         // Two parts into one store, each with a work directory of its own.
         for (int part = 0; part < 2; part++) {
             final List<String> spark = new ArrayList<>(List.of("generate"));
-            spark.addAll(dataset(sparked, "--part", Integer.toString(part), "--parts", "2", "--work-dir",
+            spark.addAll(dataset(parts, "--part", Integer.toString(part), "--parts", "2", "--work-dir",
                     dir.resolve("spark-p" + part).toString(), "--file-size", "0.05", "--tasks", "3"));
-            final String out = spark(spark.toArray(new String[0]));
-            assertTrue(out.contains("Import: "), out);
+            assertTrue(spark(spark.toArray(new String[0])).contains("Import: "));
         }
 
-        for (final String table : List.of("spo", "po", "osp", "text", "geo", "entity")) {
-            assertSame(table, cells(loaded + table, true), cells(sparked + table, true));
-        }
-        assertSame("graphs", cells(loaded + "graphs", false), cells(sparked + "graphs", false));
-        assertEquals(counters(loaded + "textcount"), counters(sparked + "textcount"));
-        // A part keeps an object's or a pair's 1, which the other part may add to: left out in
-        // both, it would read as 1 instead of 2. Only subject counters of 1 stay out, as in a load.
-        assertSameAsRead(counters(loaded + "eval"), counters(sparked + "eval"));
-    }
-
-    /** Two stores' counters, the same once a 1 in a family but {@code p} reads as no cell and markers compare by presence. */
-    private static void assertSameAsRead(final Map<String, Long> expected, final Map<String, Long> actual) {
-        final Map<String, Long> want = asRead(expected);
-        final Map<String, Long> got = asRead(actual);
-        if (!want.equals(got)) {
-            final Set<String> diff = new TreeSet<>();
-            want.forEach((k, v) -> {
-                if (!v.equals(got.get(k))) {
-                    diff.add(k + " want " + v + " got " + got.get(k));
-                }
-            });
-            got.keySet().stream().filter(k -> !want.containsKey(k)).forEach(k -> diff.add(k + " unexpected " + got.get(k)));
-            fail(diff.size() + " counters differ, e.g. " + diff.stream().limit(8).toList());
-        }
-    }
-
-    private static Map<String, Long> asRead(final Map<String, Long> counters) {
-        final Map<String, Long> out = new HashMap<>();
-        counters.forEach((k, v) -> {
-            final String family = k.split(" \\| ")[1];
-            if (family.equals(org.tripatha.store.DatatypeMarkers.FAMILY)) {
-                out.put(k, -1L);
-            } else if (!(v == 1 && EvalStatsMutations.COUNTER_FAMILIES.contains(family)
-                    && !family.equals(RdfCloudTripleStoreConstants.PRED_CF))) {
-                out.put(k, v);
+        // The dataset holds both cases a 1 must stay for, or this test would pass trivially: a counter
+        // the reference data counts that the entities add exactly 1 to (a class's label word in an
+        // entity's label), and a counter whose 1 sits next to another label's cell.
+        final Map<String, Long> truthReads = reads(truth + "eval", AUTHS);
+        // The reference data's counters, found here on their own (not through the code under test).
+        final Set<String> referenceCounters = new HashSet<>();
+        for (final RyaStatement st : org.tripatha.loader.gen.ReferenceData.statements(new EntityGenerator(
+                LoaderOptions.parse(Stream.concat(Stream.of("load"), dataset(truth).stream()).toArray(String[]::new), env()).genConfig()))) {
+            for (final EvalStatsMutations.CounterKey k : EvalStatsMutations.counterKeys(st)) {
+                referenceCounters.add(BulkBuild.counterRead(k.row().getBytes(StandardCharsets.UTF_8), k.family().getBytes(StandardCharsets.UTF_8),
+                        k.graph().getBytes(StandardCharsets.UTF_8)));
             }
-        });
+        }
+        final long sharedOnes = referenceCounters.stream()
+                .filter(k -> truthReads.getOrDefault(k, 1L) - referenceOnly.getOrDefault(k, 0L) == 1).count();
+        assertTrue(sharedOnes > 0, "no counter the reference data shares with exactly one statement");
+        assertTrue(onesNextToAnotherLabel(truth + "eval") > 0, "no counter with a 1 next to another label's cell");
+
+        for (final String prefix : List.of(loaded, built, whole, parts)) {
+            for (final String table : List.of("spo", "po", "osp", "text", "geo", "entity")) {
+                assertSame(prefix + table, cells(truth + table, true), cells(prefix + table, true));
+            }
+            assertSame(prefix + "graphs", cells(truth + "graphs", false), cells(prefix + "graphs", false));
+            assertEquals(counters(truth + "textcount"), counters(prefix + "textcount"), prefix + "textcount");
+            assertSameReads(truth + "eval", prefix + "eval");
+        }
+    }
+
+    /** Every set of labels the tests' readers may hold. */
+    private static final List<String[]> READERS = List.of(new String[0], new String[] {"A"}, new String[] {"B"}, AUTHS);
+
+    /**
+     * Two counter tables the planner reads alike, for every reader: a counter (row, family and
+     * qualifier) is the sum of the label cells the reader can see, and reads as 1 when it sees none.
+     * The datatype markers compare by presence: each write call adds its own +1.
+     */
+    private void assertSameReads(final String expectedTable, final String actualTable) {
+        for (final String[] labels : READERS) {
+            final Map<String, Long> want = reads(expectedTable, labels);
+            final Map<String, Long> got = reads(actualTable, labels);
+            final Set<String> keys = new TreeSet<>(want.keySet());
+            keys.addAll(got.keySet());
+            final Set<String> diff = new TreeSet<>();
+            for (final String k : keys) {
+                final long w = want.getOrDefault(k, 1L);
+                final long g = got.getOrDefault(k, 1L);
+                if (w != g) {
+                    diff.add(readable(k) + " want " + w + " got " + g);
+                }
+            }
+            if (!diff.isEmpty()) {
+                fail(actualTable + " read with " + java.util.Arrays.toString(labels) + ": " + diff.size() + " counters differ, e.g. "
+                        + diff.stream().limit(8).toList());
+            }
+        }
+        assertEquals(markers(expectedTable), markers(actualTable), actualTable + ": datatype markers");
+    }
+
+    /** A counter table as read with {@code labels}: each counter's visible cells added up, markers aside. */
+    private Map<String, Long> reads(final String table, final String[] labels) {
+        final Map<String, Long> out = new HashMap<>();
+        try (CellScanner cells = getStore().scan(table, KeyRange.all(), ScanSpec.of(Auths.of(labels)))) {
+            while (cells.hasNext()) {
+                final Cell c = cells.next();
+                if (!new String(c.family(), StandardCharsets.UTF_8).equals(org.tripatha.store.DatatypeMarkers.FAMILY)) {
+                    out.merge(BulkBuild.counterRead(c.row(), c.family(), c.qualifier()), getStore().counterValue(c.value()), Long::sum);
+                }
+            }
+        }
         return out;
+    }
+
+    private Set<String> markers(final String table) {
+        final Set<String> out = new TreeSet<>();
+        try (CellScanner cells = getStore().scan(table, KeyRange.all(), ScanSpec.of(Auths.of(AUTHS)))) {
+            while (cells.hasNext()) {
+                final Cell c = cells.next();
+                if (new String(c.family(), StandardCharsets.UTF_8).equals(org.tripatha.store.DatatypeMarkers.FAMILY)) {
+                    out.add(key(c));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** The counters with two label cells or more, one of them 1, in a family whose 1s may stay out. */
+    private long onesNextToAnotherLabel(final String table) {
+        final Map<String, List<Long>> byCounter = new HashMap<>();
+        try (CellScanner cells = getStore().scan(table, KeyRange.all(), ScanSpec.of(Auths.of(AUTHS)))) {
+            while (cells.hasNext()) {
+                final Cell c = cells.next();
+                final String family = new String(c.family(), StandardCharsets.UTF_8);
+                if (EvalStatsMutations.COUNTER_FAMILIES.contains(family) && !family.equals(RdfCloudTripleStoreConstants.PRED_CF)) {
+                    byCounter.computeIfAbsent(BulkBuild.counterRead(c.row(), c.family(), c.qualifier()), k -> new ArrayList<>())
+                            .add(getStore().counterValue(c.value()));
+                }
+            }
+        }
+        return byCounter.values().stream().filter(v -> v.size() > 1 && v.contains(1L)).count();
+    }
+
+    private static String readable(final String counterRead) {
+        final String[] p = counterRead.split(":", -1);
+        final java.util.HexFormat hex = java.util.HexFormat.of();
+        return (new String(hex.parseHex(p[0]), StandardCharsets.UTF_8) + " | " + new String(hex.parseHex(p[1]), StandardCharsets.UTF_8)
+                + " | " + new String(hex.parseHex(p[2]), StandardCharsets.UTF_8)).replace('\u0000', '~');
     }
 
     // ------------------------------------------------------------------ files
@@ -325,7 +405,7 @@ class SparkBuildIT extends StoreITBase {
         }
         assertSame("graphs", cells(loaded + "graphs", false), cells(sparked + "graphs", false));
         assertSame("textcount", cells(loaded + "textcount", false), cells(sparked + "textcount", false));
-        assertSameCounters(loaded + "eval", sparked + "eval");
+        assertSameReads(loaded + "eval", sparked + "eval");
 
         // _:b1 is one node across the splits of its file, and another one in the other file.
         final Set<String> blank = new TreeSet<>();
@@ -360,7 +440,7 @@ class SparkBuildIT extends StoreITBase {
         for (final String table : List.of("spo", "po", "osp", "text")) {
             assertSame(table, cells(loaded + table, true), cells(sparked + table, true));
         }
-        assertSameCounters(loaded + "eval", sparked + "eval");
+        assertSameReads(loaded + "eval", sparked + "eval");
     }
 
     @Test
@@ -401,42 +481,6 @@ class SparkBuildIT extends StoreITBase {
     private static String key(final Cell c) {
         return new String(c.row(), StandardCharsets.UTF_8) + " | " + new String(c.family(), StandardCharsets.UTF_8) + " | "
                 + new String(c.qualifier(), StandardCharsets.UTF_8) + " | " + new String(c.visibility(), StandardCharsets.UTF_8);
-    }
-
-    /**
-     * A DAO load's counters against a new store's build: the build leaves out totals of 1 in the
-     * counter families but {@code p} (the planner reads a missing counter as 1), and writes each
-     * datatype marker once per write call, so markers compare by presence.
-     */
-    private void assertSameCounters(final String loaded, final String built) {
-        final Map<String, Long> expected = counters(loaded);
-        final Map<String, Long> actual = counters(built);
-        final Map<String, Long> want = new HashMap<>();
-        expected.forEach((k, v) -> {
-            final String family = k.split(" \\| ")[1];
-            if (family.equals(org.tripatha.store.DatatypeMarkers.FAMILY)) {
-                want.put(k, -1L);
-            } else if (!(v == 1 && EvalStatsMutations.COUNTER_FAMILIES.contains(family)
-                    && !family.equals(RdfCloudTripleStoreConstants.PRED_CF))) {
-                want.put(k, v);
-            }
-        });
-        final Map<String, Long> got = new HashMap<>();
-        actual.forEach((k, v) -> got.put(k, k.split(" \\| ")[1].equals(org.tripatha.store.DatatypeMarkers.FAMILY) ? -1L : v));
-        if (!want.equals(got)) {
-            final Set<String> diff = new TreeSet<>();
-            want.forEach((k, v) -> {
-                if (!v.equals(got.get(k))) {
-                    diff.add(k + " want " + v + " got " + got.get(k));
-                }
-            });
-            got.forEach((k, v) -> {
-                if (!want.containsKey(k)) {
-                    diff.add(k + " unexpected " + v);
-                }
-            });
-            fail(built + ": " + diff.size() + " counters differ, e.g. " + diff.stream().limit(8).toList());
-        }
     }
 
     private Map<String, Long> counters(final String table) {

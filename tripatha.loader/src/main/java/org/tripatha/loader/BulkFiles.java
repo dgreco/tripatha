@@ -49,10 +49,6 @@ import org.tripatha.store.spi.Store;
  */
 final class BulkFiles {
     /** Whether a counter's total stays out of the files. */
-    interface LeftOut {
-        boolean test(byte[] family, long total);
-    }
-
     private final Store store;
     private final Spills spills;
     private final Path work;
@@ -79,7 +75,7 @@ final class BulkFiles {
      * twice. This process merges the ranges whose index is its part modulo the parts.
      */
     void merge(final BulkImport bulk, final Map<String, List<String>> byTable, final List<String> tables,
-            final Predicate<String> counterTable, final LeftOut leftOut, final long importTime) throws Exception {
+            final Predicate<String> counterTable, final BulkBuild.LeftOut leftOut, final long importTime) throws Exception {
         final Path manifest = work.resolve("merge.properties");
         final Properties done = load(manifest);
         final Path planFile = work.resolve("merge-plan.properties");
@@ -139,22 +135,24 @@ final class BulkFiles {
     }
 
     private BulkImport.Written mergeRange(final BulkImport bulk, final String table, final List<String> files, final byte[] from,
-            final byte[] to, final int index, final boolean counters, final LeftOut leftOut, final long importTime) {
+            final byte[] to, final int index, final boolean counters, final BulkBuild.LeftOut leftOut, final long importTime) {
         final String dir = spills.path("final/" + table);
         // Each file within one tablet: Accumulo's split point ends its tablet, HBase's starts the next region.
         final boolean endsTablet = bulk.splitPointEndsTablet();
         try (Spills.Reader reader = spills.read(files, from, !endsTablet, to, endsTablet, counters);
                 BulkImport.BulkFile file = bulk.newFile(table, dir, String.format(Locale.ROOT, "%s-%06d", table, index), importTime)) {
+            // A counter's cells decided together: whether a 1 may stay out depends on its other label cells.
+            final BulkBuild.CounterGroup<Spills.Combined> group = leftOut.group(
+                    k -> file.counter(k.key().row(), k.key().family(), k.key().qualifier(), k.key().visibility(), k.delta()));
             while (reader.hasNext()) {
                 final Spills.Combined c = reader.next();
                 if (counters) {
-                    if (!leftOut.test(c.key().family(), c.delta())) {
-                        file.counter(c.key().row(), c.key().family(), c.key().qualifier(), c.key().visibility(), c.delta());
-                    }
+                    group.add(c.key().row(), c.key().family(), c.key().qualifier(), c.delta(), c);
                 } else {
                     file.put(c.key().row(), c.key().family(), c.key().qualifier(), c.key().visibility(), c.timestamp(), c.value());
                 }
             }
+            group.flush();
             return file.finish();
         }
     }

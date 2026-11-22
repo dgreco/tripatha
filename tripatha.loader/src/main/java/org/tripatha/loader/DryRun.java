@@ -166,6 +166,8 @@ public final class DryRun {
         }
         final EvalStatsMutations.CounterPolicy policy = o.statsOnes();
         final long[] kept = new long[2];
+        // A 1 stays out only when it is its counter's only cell (one per label).
+        final Map<EvalStatsMutations.Counter, int[]> cellsPerCounter = all.cellsPerCounter();
         all.forEachSum((key, sum) -> {
             if (sum == 0) {
                 return;
@@ -175,10 +177,12 @@ public final class DryRun {
             if (sum == 1) {
                 f[1]++;
             }
-            if (!policy.skips(key, sum)) {
+            final int counterCells = cellsPerCounter.get(key.counter())[0];
+            if (!policy.skips(key, sum, counterCells)) {
                 kept[0]++;
             }
-            if (sum != 1 || key.family().equals(org.tripatha.api.RdfCloudTripleStoreConstants.PRED_CF)) {
+            if (!BulkBuild.leftOut(key.family().getBytes(java.nio.charset.StandardCharsets.UTF_8), sum, counterCells, false,
+                    EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES, false)) {
                 kept[1]++;
             }
         });
@@ -196,7 +200,7 @@ public final class DryRun {
         }
         out.printf(Locale.ROOT, "%-8s %14.3f %13.1f %%%n", "total", (double) cells / triples, percent(ones, cells));
         out.printf(Locale.ROOT, "This load stores %.2f counter cells per triple (--stats-ones %s); a bulk build leaving out "
-                + "every total of 1 but p's (O3) would store %.2f.%n", (double) kept[0] / triples,
+                + "the totals of 1 that are their counter's only cell, but p's (O3), would store %.2f.%n", (double) kept[0] / triples,
                 policy == EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES ? "skip" : "keep", (double) kept[1] / triples);
     }
 

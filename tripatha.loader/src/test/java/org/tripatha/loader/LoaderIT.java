@@ -414,8 +414,8 @@ class LoaderIT extends StoreITBase {
 
     /**
      * @param built the entities were written by a bulk build: its counter totals of 1 are left out
-     *        but p's (the reference data, written by prepare, keeps the loader's rule), so a key with
-     *        1 from each reads 1, the drift of SCALE-STUDY.md 6.3
+     *        but p's, when they are their counter's only cell (one per label) and the reference data
+     *        (written by prepare, with the loader's rule) doesn't count that counter too
      */
     private StoreRdfConfiguration assertStoreHoldsExactlyTheDataset(final boolean built) throws Exception {
         final LoaderOptions o = options();
@@ -451,10 +451,16 @@ class LoaderIT extends StoreITBase {
             }
         }
         if (built) {
+            // The counters prepare's reference data counts, found here on their own: a 1 there stays.
+            final Set<EvalStatsMutations.Counter> referenceCounters = new HashSet<>();
+            reference.forEach(st -> EvalStatsMutations.counterKeys(st).forEach(k -> referenceCounters.add(k.counter())));
             final EvalStatsMutations.CounterBatch bulk = new EvalStatsMutations.CounterBatch();
             entities.forEach(st -> bulk.add(st, 1));
+            // A counter's cells, one per label: a 1 stays out only when it is the only one.
+            final Map<EvalStatsMutations.Counter, int[]> cellsOf = bulk.cellsPerCounter();
             bulk.forEachSum((key, sum) -> {
-                final boolean one = sum == 1 && EvalStatsMutations.COUNTER_FAMILIES.contains(key.family()) && !key.family().equals("p");
+                final boolean one = sum == 1 && cellsOf.get(key.counter())[0] == 1 && !referenceCounters.contains(key.counter())
+                        && EvalStatsMutations.COUNTER_FAMILIES.contains(key.family()) && !key.family().equals("p");
                 if (sum != 0 && !one) {
                     expectedCounts.merge(cell(key.row().getBytes(StandardCharsets.UTF_8), key.family().getBytes(StandardCharsets.UTF_8),
                             key.graph().getBytes(StandardCharsets.UTF_8), key.visibility().getBytes(StandardCharsets.ISO_8859_1)),

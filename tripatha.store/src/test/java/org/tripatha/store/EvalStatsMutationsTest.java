@@ -104,8 +104,9 @@ class EvalStatsMutationsTest {
     }
 
     /**
-     * Skipping a subject's ones leaves out exactly the s, sp and so cells whose sum is 1, label by
-     * label, and keeps every other counter, ones included.
+     * Skipping a subject's ones leaves out exactly the s, sp and so cells whose sum is 1 and which
+     * are their counter's only cell, and keeps every other counter, ones included. A 1 next to
+     * another label's cell stays: a reader with both labels adds the two up.
      */
     @Test
     void skipSubjectOnesLeavesOutOnlyTheSubjectCountersOfOne() {
@@ -124,8 +125,12 @@ class EvalStatsMutationsTest {
         final Map<String, Long> every = cells(all.drain());
         final Map<String, Long> kept = cells(skip.drain(EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES));
 
+        // Cells per counter: row, family and graph, over every label.
+        final Map<String, Long> cellsOfCounter = new TreeMap<>();
+        every.keySet().forEach(k -> cellsOfCounter.merge(k.substring(0, k.lastIndexOf('|')), 1L, Long::sum));
         final Map<String, Long> expected = new TreeMap<>(every);
-        expected.entrySet().removeIf(e -> e.getValue() == 1 && isSubjectCounter(e.getKey()));
+        expected.entrySet().removeIf(e -> e.getValue() == 1 && isSubjectCounter(e.getKey())
+                && cellsOfCounter.get(e.getKey().substring(0, e.getKey().lastIndexOf('|'))) == 1);
         assertEquals(expected, kept);
         // Kept: urn:a's totals above 1, and every non-subject counter (urn:b's object "Bob" included).
         assertEquals(3L, kept.get("urn:a|s||"));
@@ -133,14 +138,21 @@ class EvalStatsMutationsTest {
         assertEquals(2L, kept.get("urn:a~urn:knows|sp||"));
         assertEquals(1L, kept.get("Bob|o||"));
         assertEquals(1L, kept.get("urn:name~Alice|po||"));
-        // Left out: the label A cells of urn:a (one statement), urn:b's subject cells, and so cells of one.
-        assertTrue(!kept.containsKey("urn:a|s||A") && every.containsKey("urn:a|s||A"));
+        // Kept too: label A's 1s next to the unlabelled cells of the same counters, which a reader
+        // with A adds them to (urn:a's s counter reads 4 for it, not 3), and a counter of two 1s.
+        assertEquals(1L, kept.get("urn:a|s||A"));
+        assertEquals(1L, kept.get("urn:a~urn:knows|sp||A"));
+        assertEquals(1L, kept.get("urn:a~urn:c|so||"));
+        assertEquals(1L, kept.get("urn:a~urn:c|so||A"));
+        // Left out: urn:b's subject cells, and the so cells of one with no other label.
         assertTrue(!kept.containsKey("urn:b|s||") && every.containsKey("urn:b|s||"));
         assertTrue(!kept.containsKey("urn:a~Alice|so||"));
         assertEquals(1L, every.get("urn:a~Alice|so||"));
         // The default drain, and the ALL policy, keep everything.
         assertTrue(every.values().stream().anyMatch(v -> v == 1));
-        assertTrue(!EvalStatsMutations.CounterPolicy.ALL.skips(new EvalStatsMutations.CounterKey("urn:b", "s", "", ""), 1));
+        assertTrue(!EvalStatsMutations.CounterPolicy.ALL.skips(new EvalStatsMutations.CounterKey("urn:b", "s", "", ""), 1, 1));
+        assertTrue(EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES.skips(new EvalStatsMutations.CounterKey("urn:b", "s", "", ""), 1, 1));
+        assertTrue(!EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES.skips(new EvalStatsMutations.CounterKey("urn:b", "s", "", ""), 1, 2));
     }
 
     private static boolean isSubjectCounter(final String cell) {

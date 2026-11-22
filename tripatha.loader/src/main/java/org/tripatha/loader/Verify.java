@@ -81,16 +81,17 @@ public final class Verify {
         try {
             for (final long e : entities) {
                 final Map<String, Set<String>> expected = new LinkedHashMap<>();
-                // The same statements per subject and label: a counter cell is per label.
+                // Every statement per subject and label, seen or not: a counter has a cell per label,
+                // and whether the load left one out depends on the others.
                 final Map<String, Map<String, Set<String>>> byLabel = new HashMap<>();
                 for (final RyaStatement st : generator.generate(e)) {
                     final byte[] cv = st.getColumnVisibility();
+                    final String subject = st.getSubject().getData();
+                    byLabel.computeIfAbsent(subject, k -> new HashMap<>())
+                            .computeIfAbsent(cv == null ? "" : new String(cv, StandardCharsets.ISO_8859_1), k -> new HashSet<>())
+                            .add(key(st));
                     if (VisibilityExpression.parse(cv).isVisibleTo(readerLabels)) {
-                        final String subject = st.getSubject().getData();
                         expected.computeIfAbsent(subject, k -> new HashSet<>()).add(key(st));
-                        byLabel.computeIfAbsent(subject, k -> new HashMap<>())
-                                .computeIfAbsent(cv == null ? "" : new String(cv, StandardCharsets.ISO_8859_1), k -> new HashSet<>())
-                                .add(key(st));
                     }
                 }
                 for (final Map.Entry<String, Set<String>> s : expected.entrySet()) {
@@ -116,7 +117,7 @@ public final class Verify {
                     if (stats != null) {
                         final double count = stats.getCardinality(conf, CARDINALITY_OF.SUBJECT,
                                 List.of(SimpleValueFactory.getInstance().createIRI(s.getKey())));
-                        final long expectedCount = expectedSubjectCounter(s.getKey(), byLabel.get(s.getKey()), o.statsOnes());
+                        final long expectedCount = expectedSubjectCounter(s.getKey(), byLabel.get(s.getKey()), readerLabels, o.statsOnes());
                         if (Math.round(count) != expectedCount) {
                             counterMismatches++;
                             note(problems, "subject counter of " + s.getKey() + " is " + Math.round(count) + ", expected "
@@ -138,15 +139,27 @@ public final class Verify {
     }
 
     /**
-     * What {@code getCardinality} should return for a subject, from its visible statements per
-     * label: the sum of the label cells the load wrote, or -1 when it wrote none.
+     * What {@code getCardinality} should return for a subject, from its statements per label: the
+     * sum of the label cells the load wrote that the reader can see, or -1 when it sees none. A load
+     * leaves a cell of 1 out only when it is its counter's only cell, so that depends on every label
+     * of the subject's statements, seen or not.
      */
-    static long expectedSubjectCounter(final String subject, final Map<String, Set<String>> byLabel, final CounterPolicy policy) {
+    static long expectedSubjectCounter(final String subject, final Map<String, Set<String>> byLabel, final List<String> readerLabels,
+            final CounterPolicy policy) {
+        int cells = 0;
+        for (final Set<String> statements : byLabel.values()) {
+            if (!statements.isEmpty()) {
+                cells++;
+            }
+        }
         long total = 0;
         boolean written = false;
         for (final Map.Entry<String, Set<String>> label : byLabel.entrySet()) {
             final long n = label.getValue().size();
-            if (!policy.skips(new CounterKey(subject, SUBJECT_CF, "", label.getKey()), n)) {
+            if (n == 0 || policy.skips(new CounterKey(subject, SUBJECT_CF, "", label.getKey()), n, cells)) {
+                continue;
+            }
+            if (VisibilityExpression.parse(label.getKey().getBytes(StandardCharsets.ISO_8859_1)).isVisibleTo(readerLabels)) {
                 total += n;
                 written = true;
             }

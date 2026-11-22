@@ -1462,7 +1462,12 @@ Oxigraph's four clear wins (S3, S6, F3, F4) are the per-lookup key work of secti
 - **Then each server stalls with its own disk.** Shuffle writes slowed the disks of the two worker nodes that also run etcd and a Ceph monitor. Their OSDs reached 1.8–2.0 s of commit latency, and their ZooKeeper followers up to 5.9 s, so the guard stopped two runs. The third worker's node runs neither, and has the same drive model (DRAM-less NVMe). There the OSD stayed at 11 ms, and the ZooKeeper leader, moved to that node, never stalled.
 - **The 500M shuffle:** map tasks of about 110 s write about 0.43 GB each, in bursts at task end, so about 110 GB in all (zstd). That's 8 MB/s per node on average.
 - **Next:** 500M as five `generate` parts of 100M, with one worker on the robust node. That needed `generate` to be exact in parts: it now leaves out only subject counters of 1 there.
-- **Found on the way, not fixed yet:** the whole bulk build (the loader's `build`, Spark's `generate` in one part) isn't exact either. It leaves out a total of 1 as if its totals were the store's, but `prepare` has already counted the reference data. A label word shared by an entity and a class then reads 1 where the store holds 2 (37 counters in `SparkBuildIT`'s 2,000 entities). It only steers plans, but it breaks "the build writes what `load` writes". A fix would keep a 1 whose key the store already counts.
+- **Found on the way, then fixed:** leaving a 1 out was decided cell by cell, but a reader adds up a counter's label cells. So it was only exact when the 1 was its counter's only cell. Two cases broke that:
+  - **The reference data:** `prepare` has already counted the reference data. A label word shared by an entity and a class read 1 where the store held 2: 31 to 37 counters in `SparkBuildIT`'s 2,000 entities, for the loader's `build` and Spark's `generate` alike.
+  - **Other labels:** a 1 under label A was left out next to the unlabelled cell of the same counter. A reader with A then read one too low: 1,771 counters with label A in that dataset, mostly objects and pairs.
+  - **The fix:** a 1 now stays out only when it is its counter's only cell, of a counter the reference data doesn't count (regenerated from the dataset, so a resume decides alike). This holds in the DAO's drain, the loader's merge, Spark's `generate` and `files`, `verify` and `dry-run`.
+  - **The test:** `SparkBuildIT.everyBuildReadsAsALoadOfEveryCounter` reads every build against a `--stats-ones keep` load, for each set of labels. Switching off either check fails it.
+  - **Stores built before the fix:** `t10m_`, from one whole `generate`, has the reference-data case. `b500m_`'s parts 0 and 1 are exact: the parts rule kept every object and pair 1, and the dataset has no labels. Parts 2-4 can follow with either tools.
 
 **Files per tablet:** at most the table's `table.file.max` (15 by default), read with the table's configuration: Accumulo compacts a tablet that holds more. With tablets of 10 GB, as at 1T, a tablet's files are then about 700 MB each.
 
@@ -1646,7 +1651,7 @@ These were checked so they don't need work:
 
 **The block must be summed whole.**
 - **Why:** with the default policy, `RyaStoreDAO.add` writes its pending counters early once it holds 50,000 keys (`MAX_PENDING_COUNTERS`). A 1,000-entity block averages about 48,500 counter keys, so an early write would split some blocks, and with them subjects. Two halves of one subject's counter would then each look like a 1.
-- **How:** `RyaStoreDAO.add(statements, CounterPolicy.SKIP_SUBJECT_ONES)` sums the counters of the whole call before writing any, then leaves out the `s`, `sp` and `so` cells whose sum is 1, label by label (`CounterBatch.drain(policy)`). The loader passes one block per call, as before.
+- **How:** `RyaStoreDAO.add(statements, CounterPolicy.SKIP_SUBJECT_ONES)` sums the counters of the whole call before writing any, then leaves out the `s`, `sp` and `so` cells whose sum is 1 and which are their counter's only cell (`CounterBatch.drain(policy)`): a reader adds up the label cells it can see, so a 1 next to another label's cell must stay. The loader passes one block per call, as before.
 - **Resume:** a block is still recorded only after its flush, so `--resume` behaves as today: blocks in flight during a failure are written again.
 
 **Who may use it:** only callers that pass whole subjects per call, which the generator guarantees. Real data gets the same effect, for every family, from the bulk build (O3).
@@ -1667,7 +1672,7 @@ These were checked so they don't need work:
 **Tests:**
 - `EntityGeneratorTest`: no subject appears in two entities, or in an entity and the reference data, with labels and with RDF 1.2 reifiers. A generator change that breaks the property fails the build.
 - `EvalStatsMutationsTest`: the policy leaves out exactly the subject cells of 1, label by label, and keeps every other counter.
-- `StatsAndGraphsIT`: a subject whose statements straddle the 50,000-key point keeps its total; other counters of 1 are written; a reader with two labels sees only the label whose count is above 1.
+- `StatsAndGraphsIT`: a subject whose statements straddle the 50,000-key point keeps its total; other counters of 1 are written; a subject's 1 under a label next to its unlabelled count is kept, so a reader with the label reads both.
 - `RdfCloudTripleStoreEvaluationStatisticsTest`: a missing counter estimates 1, alone and in the inference sum.
 - `LoaderOptionsTest`, and `LoaderIT`'s cell-by-cell `eval` check after parallel parts, a stop and resume, and a write failure.
 
@@ -1730,9 +1735,9 @@ The partitioning and merge sit above the SPI, in `tripatha.loader`, so they are 
 
 ### 6.3 Leaving counters of 1 out: the rule and what it changes
 
-**The rule:** don't write a counter whose total is 1, except in family `p`:
+**The rule:** don't write a counter whose total is 1, except in family `p`, when that cell is its counter's only one (a counter has a cell per label, and a reader adds up those it can see) and nothing else in the store counts it:
 - in the loader, for the per-subject families only (O1);
-- in a bulk build, for every family (O3).
+- in a bulk build, for every family (O3), keeping the 1s of the counters `prepare`'s reference data counts (2026-11-22).
 
 **Why the estimates are identical, for a load into an empty store.**
 - **The main branches.** For every family, the subject, predicate and object branches of `RdfCloudTripleStoreEvaluationStatistics` map a missing counter to 1, so join orders don't change.
@@ -1746,11 +1751,11 @@ The other readers of the counters are `RyaStoreEvalStatsDAO.getCardinality`, `Gr
 **The effect of the full rule (O3):** about 5.4 → 0.5 cells per triple stored, and *est.* about 50 → 5 B per triple on disk, so about 135 TB less at 1T with 3 replicas.
 
 **What changes:**
-- **Several labels.** Counters are per label, so a key whose count is 1 under one label is left out under that label, even when other labels count more. A reader holding several labels reads it one low per such label.
+- **Several labels.** Counters are per label. Until 2026-11-22 a key whose count was 1 under one label was left out under that label even when other labels counted more, and a reader holding several labels read it one low per such label (1,771 counters with label A in `SparkBuildIT`'s 2,000 entities, mostly objects and pairs). Now such a 1 stays. The cost is in labelled data only: with 30 % of the entities under labels A or B, a bulk build stores 0.80 counter cells per triple instead of 0.57 (`dry-run`, 20,000 entities); without labels it stays at 0.57. A load is unchanged (2.54), since the generator labels whole entities.
 - **Online writes after the load:**
   - re-adding such a statement gives 1 instead of 2;
   - deleting it leaves −1, which `getCardinality` reads as 0: right.
-- **A second load, or a load into a store the online path already wrote,** decides "total of 1" from its own data only. A key with a total of 1 in the new data but already present in the store is left out, so it reads one too low: the same drift as above.
+- **A second load, or a load into a store the online path already wrote,** decides "total of 1" from its own data only. A key with a total of 1 in the new data but already present in the store is left out, so it reads one too low. The bulk builds handle the one store contents every load has, `prepare`'s reference data, by regenerating its counters (`BulkBuild.referenceCounters`); anything else written before a load still drifts this way.
 - **`verify` and `LoaderIT`** read a missing counter as 1.
 
 **Optional, for the online path too:** make `so`, and the per-graph set, configurable. `so` is only read for patterns with a bound subject and object and an unbound predicate.
