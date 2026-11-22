@@ -125,10 +125,10 @@ Every object is labelled `app=tripatha`: `kubectl -n NS delete all,pod -l app=tr
 
 ```bash
 export NAMESPACE=accumulo DATA_PVC=accumulo-data DATA_PATH=/var/accumulo/data
-export WORKERS=4 WORKER_CORES=2 WORKER_MEMORY=3500m WORKER_POD_MEMORY=4608Mi WORKER_DISK=55Gi
+export WORKERS=4 WORKER_CORES=2 WORKER_MEMORY=3500m WORKER_POD_MEMORY=4608Mi WORKER_DISK=55Gi AVOID_NODES=none
 export ACCUMULO_INSTANCE=accumulo ACCUMULO_ZOOKEEPERS=accumulo-zookeeper-server.accumulo.svc.cluster.local:2282 ACCUMULO_USER=root
 export SECRET=accumulo-secret SECRET_KEY=root-password DRIVER_MEMORY=2Gi DRIVER_HEAP=1280m EXECUTOR_MEMORY=3g
-V='${NAMESPACE} ${DATA_PVC} ${DATA_PATH} ${WORKERS} ${WORKER_CORES} ${WORKER_MEMORY} ${WORKER_POD_MEMORY} ${WORKER_DISK} ${NAME} ${ACCUMULO_INSTANCE} ${ACCUMULO_ZOOKEEPERS} ${ACCUMULO_USER} ${SECRET} ${SECRET_KEY} ${DRIVER_MEMORY} ${DRIVER_HEAP} ${EXECUTOR_MEMORY} ${DRIVER_COMMAND}'
+V='${NAMESPACE} ${DATA_PVC} ${DATA_PATH} ${WORKERS} ${WORKER_CORES} ${WORKER_MEMORY} ${WORKER_POD_MEMORY} ${WORKER_DISK} ${AVOID_NODES} ${NAME} ${ACCUMULO_INSTANCE} ${ACCUMULO_ZOOKEEPERS} ${ACCUMULO_USER} ${SECRET} ${SECRET_KEY} ${DRIVER_MEMORY} ${DRIVER_HEAP} ${EXECUTOR_MEMORY} ${DRIVER_COMMAND}'
 K=tripatha.spark/k8s
 ```
 
@@ -158,9 +158,9 @@ NAME=tripatha-load DRIVER_COMMAND="loader prepare --accumulo-properties \$A $DS 
   envsubst "$V" < $K/driver-pod.yaml | kubectl apply -f -
 ```
 
-- **Leave the cluster room:** each worker is limited to `WORKER_CORES`. Where Ceph or ZooKeeper run on the same nodes, a Spark job that takes every idle core starves them. On a cluster of four 8-core nodes, with 4 cores per worker and no limit, ZooKeeper's fsyncs reached 7.5 s within 20 minutes, a ZooKeeper session expired, and Accumulo's compaction coordinator crashed. With 2 cores per worker the stalls went on there: they came from one slow Ceph OSD (`BLUESTORE_SLOW_OP_ALERT`), whose commit latency rose from about 10 ms to 12–19 s under write bursts while the others stayed under 15 ms. Check `ceph health detail` and `ceph osd perf` before a large load, and keep workers off a node whose OSD is slow (a `nodeAffinity`). Watch ZooKeeper's log for `fsync-ing the write ahead log … took` during a load. The driver pod gives each executor a whole worker (`spark.executor.cores` = `WORKER_CORES`).
+- **Leave the cluster room:** each worker is limited to `WORKER_CORES`. Where Ceph or ZooKeeper run on the same nodes, a Spark job that takes every idle core starves them. On a cluster of four 8-core nodes, with 4 cores per worker and no limit, ZooKeeper's fsyncs reached 7.5 s within 20 minutes, a ZooKeeper session expired, and Accumulo's compaction coordinator crashed. With 2 cores per worker the stalls went on there: they came from one slow Ceph OSD (`BLUESTORE_SLOW_OP_ALERT`), whose commit latency rose from about 10 ms to 12–19 s under write bursts while the others stayed under 15 ms. Check `ceph health detail` and `ceph osd perf` before a large load, and keep workers off a node whose OSD is slow: `AVOID_NODES=sleepy.example.local` (comma-separated host names; `none` avoids none), with `WORKERS` one per remaining node. Watch ZooKeeper's log for `fsync-ing the write ahead log … took` during a load. The driver pod gives each executor a whole worker (`spark.executor.cores` = `WORKER_CORES`).
 - **Sizing:** workers and drivers must fit the nodes' free memory requests (`kubectl describe nodes`), which on a shared cluster can be much less than the nodes' memory. The figures above fit nodes of 32 GB that run Accumulo and other services: 4.5 GiB per worker (an executor of 3 GB and 4 cores), 2 GiB for the driver.
-- **Shuffle disk:** at 10M triples with every index the job shuffled 3.5 GB (92M records, lz4). At 500M on four workers, plan for 30–45 GB of local disk per node (with zstd: 13 GB per node after the first 16 minutes of the map stage). Each worker's `emptyDir` must hold its share; a node out of disk evicts the pod.
+- **Shuffle disk:** at 10M triples with every index the job shuffled 3.5 GB (92M records, lz4). At 500M on four workers, plan for 30–45 GB of local disk per node (with zstd: 13 GB per node after the first 16 minutes of the map stage). Each worker's `emptyDir` must hold its share (a third more on three workers); a node out of disk evicts the pod.
 - **The driver** runs in client mode: the executors connect to it on its pod address (ports 7078 and 7079).
 
 ## Measured
