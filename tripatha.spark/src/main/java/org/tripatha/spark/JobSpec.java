@@ -45,6 +45,8 @@ final class JobSpec implements Serializable {
     CounterPolicy addPolicy;
     /** Which final totals stay out of the files ({@code SKIP_SUBJECT_ONES} only when the totals are the store's). */
     CounterPolicy leftOutPolicy;
+    /** The totals are one part's ({@code generate --parts} over 1): only subject counters of 1 stay out. */
+    boolean partTotals;
     /** Every file statement's label expression, or null. */
     byte[] visibility;
     long maxBadLines;

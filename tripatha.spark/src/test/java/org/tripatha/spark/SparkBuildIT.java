@@ -166,6 +166,69 @@ class SparkBuildIT extends StoreITBase {
         assertThrows(StoreCheck.Mismatch.class, () -> spark(write.toArray(new String[0])));
     }
 
+    /**
+     * Two {@code generate} parts against a DAO {@code load}: the same cells, and the same counters
+     * as the planner reads them. Not against the whole build: it leaves out a total of 1 that the
+     * reference data {@code prepare} wrote also counts (an entity's label word that is also a
+     * class's), so it reads 1 where the store holds 2.
+     */
+    @Test
+    void generateInPartsWritesWhatALoadWrites() throws Exception {
+        final String loaded = getTablePrefix() + "l_";
+        final String sparked = getTablePrefix();
+        for (final String prefix : List.of(loaded, sparked)) {
+            loader("prepare", dataset(prefix, "--splits", "7"));
+        }
+        loader("load", dataset(loaded, "--threads", "4", "--progress-file", dir.resolve("load.progress").toString()));
+        // Two parts into one store, each with a work directory of its own.
+        for (int part = 0; part < 2; part++) {
+            final List<String> spark = new ArrayList<>(List.of("generate"));
+            spark.addAll(dataset(sparked, "--part", Integer.toString(part), "--parts", "2", "--work-dir",
+                    dir.resolve("spark-p" + part).toString(), "--file-size", "0.05", "--tasks", "3"));
+            final String out = spark(spark.toArray(new String[0]));
+            assertTrue(out.contains("Import: "), out);
+        }
+
+        for (final String table : List.of("spo", "po", "osp", "text", "geo", "entity")) {
+            assertSame(table, cells(loaded + table, true), cells(sparked + table, true));
+        }
+        assertSame("graphs", cells(loaded + "graphs", false), cells(sparked + "graphs", false));
+        assertEquals(counters(loaded + "textcount"), counters(sparked + "textcount"));
+        // A part keeps an object's or a pair's 1, which the other part may add to: left out in
+        // both, it would read as 1 instead of 2. Only subject counters of 1 stay out, as in a load.
+        assertSameAsRead(counters(loaded + "eval"), counters(sparked + "eval"));
+    }
+
+    /** Two stores' counters, the same once a 1 in a family but {@code p} reads as no cell and markers compare by presence. */
+    private static void assertSameAsRead(final Map<String, Long> expected, final Map<String, Long> actual) {
+        final Map<String, Long> want = asRead(expected);
+        final Map<String, Long> got = asRead(actual);
+        if (!want.equals(got)) {
+            final Set<String> diff = new TreeSet<>();
+            want.forEach((k, v) -> {
+                if (!v.equals(got.get(k))) {
+                    diff.add(k + " want " + v + " got " + got.get(k));
+                }
+            });
+            got.keySet().stream().filter(k -> !want.containsKey(k)).forEach(k -> diff.add(k + " unexpected " + got.get(k)));
+            fail(diff.size() + " counters differ, e.g. " + diff.stream().limit(8).toList());
+        }
+    }
+
+    private static Map<String, Long> asRead(final Map<String, Long> counters) {
+        final Map<String, Long> out = new HashMap<>();
+        counters.forEach((k, v) -> {
+            final String family = k.split(" \\| ")[1];
+            if (family.equals(org.tripatha.store.DatatypeMarkers.FAMILY)) {
+                out.put(k, -1L);
+            } else if (!(v == 1 && EvalStatsMutations.COUNTER_FAMILIES.contains(family)
+                    && !family.equals(RdfCloudTripleStoreConstants.PRED_CF))) {
+                out.put(k, v);
+            }
+        });
+        return out;
+    }
+
     // ------------------------------------------------------------------ files
 
     private static final String XSD = "http://www.w3.org/2001/XMLSchema#";

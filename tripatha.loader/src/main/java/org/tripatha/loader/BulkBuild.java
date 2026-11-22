@@ -400,6 +400,20 @@ public final class BulkBuild {
         return EvalStatsMutations.COUNTER_FAMILIES.contains(f) && !f.equals(RdfCloudTripleStoreConstants.PRED_CF);
     }
 
+    /**
+     * The rule for the totals of one part of a generated dataset (the Spark build's
+     * {@code generate --part}), which other parts add to: zeros, and with {@code SKIP_SUBJECT_ONES}
+     * the subject counters ({@code s}, {@code sp}, {@code so}) of 1. Those totals are final, since
+     * an entity's subjects appear in no other entity. Any other family's 1 may meet another part's.
+     */
+    public static boolean leftOutOfPart(final byte[] family, final long total, final EvalStatsMutations.CounterPolicy ones) {
+        if (total == 0) {
+            return true;
+        }
+        return total == 1 && ones == EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES
+                && EvalStatsMutations.CounterPolicy.isSubjectCounter(new String(family, StandardCharsets.UTF_8));
+    }
+
     // ------------------------------------------------------------------ import
 
     private void importFiles(final BulkImport bulk, final List<String> tables) throws Exception {

@@ -449,7 +449,8 @@ final class Tasks {
                     v = Shuffle.Value.combine(v, c._2());
                     continue;
                 }
-                if (k != null && !(v.counter && BulkBuild.leftOut(k.family, v.delta, spec.leftOutPolicy))) {
+                if (k != null && !(v.counter && (spec.partTotals ? BulkBuild.leftOutOfPart(k.family, v.delta, spec.leftOutPolicy)
+                        : BulkBuild.leftOut(k.family, v.delta, spec.leftOutPolicy)))) {
                     if (file == null) {
                         file = AccumuloRFiles.open(spec.tableProperties.get(table), spec.hadoopConf(), spec.filesDir + "/" + table,
                                 name, spec.jobTime);

@@ -101,7 +101,8 @@ public final class EvalStatsMutations {
             return this == SKIP_SUBJECT_ONES && sum == 1 && isSubjectCounter(key.family());
         }
 
-        private static boolean isSubjectCounter(final String family) {
+        /** Whether {@code family} is one of a subject's counters: {@code s}, {@code sp} or {@code so}. */
+        public static boolean isSubjectCounter(final String family) {
             return family.equals(SUBJECT_CF) || family.equals(SUBJECTPRED_CF) || family.equals(SUBJECTOBJECT_CF);
         }
     }
