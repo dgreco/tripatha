@@ -451,6 +451,8 @@ public final class BulkBuild {
     public static final class CounterGroup<T> {
         private final LeftOut rule;
         private final java.util.function.Consumer<T> keep;
+        /** The rows of {@code rule.countedElsewhere()}: a cheap first test, before the counter's full key is built. */
+        private final Set<java.nio.ByteBuffer> elsewhereRows;
         private final List<T> cells = new ArrayList<>();
         private final List<Long> totals = new ArrayList<>();
         private byte[] row;
@@ -460,6 +462,10 @@ public final class BulkBuild {
         CounterGroup(final LeftOut rule, final java.util.function.Consumer<T> keep) {
             this.rule = rule;
             this.keep = keep;
+            this.elsewhereRows = new java.util.HashSet<>();
+            for (final String k : rule.countedElsewhere()) {
+                elsewhereRows.add(java.nio.ByteBuffer.wrap(java.util.HexFormat.of().parseHex(k.substring(0, k.indexOf(':')))));
+            }
         }
 
         /** A cell of the range, in order, with its total. */
@@ -469,9 +475,9 @@ public final class BulkBuild {
                 flush();
             }
             if (this.row == null) {
-                this.row = row.clone();
-                this.family = family.clone();
-                this.qualifier = qualifier.clone();
+                this.row = row;
+                this.family = family;
+                this.qualifier = qualifier;
             }
             cells.add(cell);
             totals.add(total);
@@ -488,7 +494,9 @@ public final class BulkBuild {
                     nonZero++;
                 }
             }
-            final boolean elsewhere = !rule.countedElsewhere().isEmpty() && rule.countedElsewhere().contains(counterRead(row, family, qualifier));
+            // Most counters' rows aren't the reference data's: the full key only for those that are.
+            final boolean elsewhere = !elsewhereRows.isEmpty() && elsewhereRows.contains(java.nio.ByteBuffer.wrap(row))
+                    && rule.countedElsewhere().contains(counterRead(row, family, qualifier));
             for (int i = 0; i < cells.size(); i++) {
                 if (!leftOut(family, totals.get(i), nonZero, elsewhere, rule.ones(), rule.partTotals())) {
                     keep.accept(cells.get(i));
