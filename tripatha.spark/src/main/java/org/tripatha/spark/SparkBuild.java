@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -358,10 +359,15 @@ public final class SparkBuild {
             final boolean fresh = Boolean.parseBoolean(job.getProperty("fresh"));
             spec.addPolicy = CounterPolicy.ALL;
             spec.leftOutPolicy = fresh ? CounterPolicy.SKIP_SUBJECT_ONES : CounterPolicy.ALL;
+            // A new store holds no counters; an old one gets every 1 kept (ALL).
+            spec.countedElsewhere = new HashSet<>();
         } else {
             spec.addPolicy = o.statsOnes();
             spec.leftOutPolicy = o.statsOnes();
             spec.partTotals = o.parts() > 1;
+            // prepare has counted the reference data: a 1 of a counter it shares is not the store's total.
+            spec.countedElsewhere = new HashSet<>(org.tripatha.loader.BulkBuild.referenceCounters(
+                    new org.tripatha.loader.gen.EntityGenerator(o.genConfig())));
         }
         spec.existing = existing(conf);
         spec.tableProperties = new HashMap<>();

@@ -438,7 +438,18 @@ final class Tasks {
         final Shuffle.Layout layout = spec.layout;
         final String table = layout.tables.get(layout.tableOf(partition));
         final String name = String.format(java.util.Locale.ROOT, "%06d", layout.fileOf(partition));
-        BulkImport.BulkFile file = null;
+        // The file, opened by the first cell kept: an empty partition writes none.
+        final BulkImport.BulkFile[] file = new BulkImport.BulkFile[1];
+        final java.util.function.Supplier<BulkImport.BulkFile> open = () -> {
+            if (file[0] == null) {
+                file[0] = AccumuloRFiles.open(spec.tableProperties.get(table), spec.hadoopConf(), spec.filesDir + "/" + table, name,
+                        spec.jobTime);
+            }
+            return file[0];
+        };
+        // A counter's cells (one per label) decided together: whether a 1 stays out depends on the others.
+        final BulkBuild.CounterGroup<Tuple2<Shuffle.Key, Shuffle.Value>> group = spec.leftOut()
+                .group(kv -> open.get().counter(kv._1().row, kv._1().family, kv._1().qualifier, kv._1().visibility, kv._2().delta));
         try {
             // Sorted, so the cells of one key are next to each other: added up, or the newest put kept.
             Shuffle.Key k = null;
@@ -449,16 +460,12 @@ final class Tasks {
                     v = Shuffle.Value.combine(v, c._2());
                     continue;
                 }
-                if (k != null && !(v.counter && (spec.partTotals ? BulkBuild.leftOutOfPart(k.family, v.delta, spec.leftOutPolicy)
-                        : BulkBuild.leftOut(k.family, v.delta, spec.leftOutPolicy)))) {
-                    if (file == null) {
-                        file = AccumuloRFiles.open(spec.tableProperties.get(table), spec.hadoopConf(), spec.filesDir + "/" + table,
-                                name, spec.jobTime);
-                    }
+                if (k != null) {
                     if (v.counter) {
-                        file.counter(k.row, k.family, k.qualifier, k.visibility, v.delta);
+                        group.add(k.row, k.family, k.qualifier, v.delta, new Tuple2<>(k, v));
                     } else {
-                        file.put(k.row, k.family, k.qualifier, k.visibility, v.timestamp, v.value);
+                        group.flush();
+                        open.get().put(k.row, k.family, k.qualifier, k.visibility, v.timestamp, v.value);
                     }
                 }
                 if (c == null) {
@@ -467,19 +474,20 @@ final class Tasks {
                 k = c._1();
                 v = c._2();
             }
-            if (file == null) {
+            group.flush();
+            if (file[0] == null) {
                 return java.util.Collections.emptyIterator();
             }
-            final BulkImport.Written w = file.finish();
-            file = null;
+            final BulkImport.Written w = file[0].finish();
+            file[0] = null;
             final List<FileWritten> out = new ArrayList<>(1);
             if (w != null) {
                 out.add(new FileWritten(table, w));
             }
             return out.iterator();
         } finally {
-            if (file != null) {
-                file.close();
+            if (file[0] != null) {
+                file[0].close();
             }
         }
     }

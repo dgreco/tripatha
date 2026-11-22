@@ -77,6 +77,17 @@ public final class EvalStatsMutations {
      * @param visibility the counted statement's visibility, one char per byte (ISO-8859-1)
      */
     public record CounterKey(String row, String family, String graph, String visibility) {
+        /** The counter this cell is one label's part of. */
+        public Counter counter() {
+            return new Counter(row, family, graph);
+        }
+    }
+
+    /**
+     * A counter as the planner reads it: a row, a family and a graph (empty for every graph). It
+     * has one cell per label, and a reader adds up the cells it can see.
+     */
+    public record Counter(String row, String family, String graph) {
     }
 
     /**
@@ -89,16 +100,21 @@ public final class EvalStatsMutations {
         /** Write every counter. */
         ALL,
         /**
-         * Leave out a subject's counters ({@code s}, {@code sp}, {@code so}) whose sum is 1. Only
-         * exact when that sum is the final total: the batch must hold every statement of each of
-         * its subjects, and the store none. The loader's blocks hold whole entities, and an
-         * entity's subjects appear in no other entity.
+         * Leave out a subject's counters ({@code s}, {@code sp}, {@code so}) whose sum is 1 and
+         * which are their counter's only cell. Only exact when that sum is the final total: the
+         * batch must hold every statement of each of its subjects, and the store none. The
+         * loader's blocks hold whole entities, and an entity's subjects appear in no other entity.
+         * A reader adds up the label cells it can see: a 1 left out next to another label's cell
+         * would read as nothing, not as 1 more.
          */
         SKIP_SUBJECT_ONES;
 
-        /** Whether this policy leaves out the counter {@code key} with the sum {@code sum}. */
-        public boolean skips(final CounterKey key, final long sum) {
-            return this == SKIP_SUBJECT_ONES && sum == 1 && isSubjectCounter(key.family());
+        /**
+         * Whether this policy leaves out the cell {@code key} with the sum {@code sum}, when its
+         * counter has {@code cells} cells with a sum other than 0 (one per label, this one included).
+         */
+        public boolean skips(final CounterKey key, final long sum, final int cells) {
+            return this == SKIP_SUBJECT_ONES && sum == 1 && cells == 1 && isSubjectCounter(key.family());
         }
 
         /** Whether {@code family} is one of a subject's counters: {@code s}, {@code sp} or {@code so}. */
@@ -156,6 +172,17 @@ public final class EvalStatsMutations {
             sums.forEach((key, sum) -> action.accept(key, sum[0]));
         }
 
+        /** How many cells each pending counter has with a sum other than 0: one per label. */
+        public Map<Counter, int[]> cellsPerCounter() {
+            final Map<Counter, int[]> cells = new HashMap<>();
+            sums.forEach((key, sum) -> {
+                if (sum[0] != 0) {
+                    cells.computeIfAbsent(key.counter(), c -> new int[1])[0]++;
+                }
+            });
+            return cells;
+        }
+
         /** The pending sums as mutations (one per row; zero sums are dropped), and clears them. */
         public List<RowMutation> drain() {
             return drain(CounterPolicy.ALL);
@@ -166,11 +193,12 @@ public final class EvalStatsMutations {
          * {@code policy} leaves out, and clears them.
          */
         public List<RowMutation> drain(final CounterPolicy policy) {
+            final Map<Counter, int[]> cells = policy == CounterPolicy.ALL ? Map.of() : cellsPerCounter();
             final Map<String, RowMutation> byRow = new LinkedHashMap<>();
             for (final Map.Entry<CounterKey, long[]> e : sums.entrySet()) {
                 final long sum = e.getValue()[0];
                 final CounterKey key = e.getKey();
-                if (sum == 0 || policy.skips(key, sum)) {
+                if (sum == 0 || policy != CounterPolicy.ALL && policy.skips(key, sum, cells.get(key.counter())[0])) {
                     continue;
                 }
                 final RowMutation m = byRow.computeIfAbsent(key.row(),

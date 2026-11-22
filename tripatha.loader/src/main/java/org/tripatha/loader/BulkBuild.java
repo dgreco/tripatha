@@ -368,7 +368,9 @@ public final class BulkBuild {
                 byTable.computeIfAbsent(table(f), k -> new ArrayList<>()).add(f);
             }
         }
-        files().merge(bulk, byTable, tables, this::isCounters, this::leftOut, importTime);
+        // The loader's parts all feed this one merge, so its totals are the whole dataset's.
+        files().merge(bulk, byTable, tables, this::isCounters,
+                new LeftOut(referenceCounters(new EntityGenerator(o.genConfig())), o.statsOnes(), false), importTime);
     }
 
     private BulkFiles files() {
@@ -376,42 +378,126 @@ public final class BulkBuild {
     }
 
     /**
-     * Whether a counter's total stays out of {@code eval}: 0 always; 1 in the six counter families
-     * but {@code p} (graph sizes sum it), with {@code --stats-ones skip}. The datatype markers
-     * (family {@code t}) always stay: a missing marker makes a value range skip that datatype.
+     * Whether one cell of a counter stays out of the files, by its total in this build. Zeros
+     * always. With {@code SKIP_SUBJECT_ONES}, a 1 the planner reads the same without: it reads a
+     * missing counter as 1, and adds up the label cells it can see. So the cell must be its
+     * counter's only one ({@code cells} counts those with a total other than 0), and nothing outside
+     * this build may count that counter ({@code countedElsewhere}: the reference data {@code prepare}
+     * wrote). Then, for the store's totals, in every counter family but {@code p} (graph sizes sum
+     * it); for one part's ({@code partTotals}, the Spark build's {@code generate --part}), only in a
+     * subject's ({@code s}, {@code sp}, {@code so}): an entity's subjects appear in no other entity,
+     * but another part may add to any other counter. The datatype markers (family {@code t}) always
+     * stay: a missing marker makes a value range skip that datatype.
      */
-    boolean leftOut(final byte[] family, final long total) {
-        return leftOut(family, total, o.statsOnes());
-    }
-
-    /**
-     * The rule of {@link #leftOut(byte[], long)} for a counter's final total, shared with the
-     * Spark build (tripatha.spark): with {@code SKIP_SUBJECT_ONES}, totals of 1 are left out in
-     * the six counter families but {@code p}, which is exact only when the total is the store's.
-     */
-    public static boolean leftOut(final byte[] family, final long total, final EvalStatsMutations.CounterPolicy ones) {
+    public static boolean leftOut(final byte[] family, final long total, final int cells, final boolean countedElsewhere,
+            final EvalStatsMutations.CounterPolicy ones, final boolean partTotals) {
         if (total == 0) {
             return true;
         }
-        if (total != 1 || ones != EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES) {
+        if (total != 1 || cells != 1 || countedElsewhere || ones != EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES) {
             return false;
         }
         final String f = new String(family, StandardCharsets.UTF_8);
-        return EvalStatsMutations.COUNTER_FAMILIES.contains(f) && !f.equals(RdfCloudTripleStoreConstants.PRED_CF);
+        return partTotals ? EvalStatsMutations.CounterPolicy.isSubjectCounter(f)
+                : EvalStatsMutations.COUNTER_FAMILIES.contains(f) && !f.equals(RdfCloudTripleStoreConstants.PRED_CF);
     }
 
     /**
-     * The rule for the totals of one part of a generated dataset (the Spark build's
-     * {@code generate --part}), which other parts add to: zeros, and with {@code SKIP_SUBJECT_ONES}
-     * the subject counters ({@code s}, {@code sp}, {@code so}) of 1. Those totals are final, since
-     * an entity's subjects appear in no other entity. Any other family's 1 may meet another part's.
+     * The counters the reference data counts ({@code prepare} writes it with a DAO before any build),
+     * as {@link #counterRead}: a total of 1 there is not the store's. Regenerated from the dataset, so
+     * a build and its resume decide alike.
      */
-    public static boolean leftOutOfPart(final byte[] family, final long total, final EvalStatsMutations.CounterPolicy ones) {
-        if (total == 0) {
-            return true;
+    public static Set<String> referenceCounters(final EntityGenerator generator) {
+        final Set<String> out = new java.util.HashSet<>();
+        for (final RyaStatement st : org.tripatha.loader.gen.ReferenceData.statements(generator)) {
+            for (final EvalStatsMutations.CounterKey k : EvalStatsMutations.counterKeys(st)) {
+                out.add(counterRead(k.row().getBytes(StandardCharsets.UTF_8), k.family().getBytes(StandardCharsets.UTF_8),
+                        k.graph().getBytes(StandardCharsets.UTF_8)));
+            }
         }
-        return total == 1 && ones == EvalStatsMutations.CounterPolicy.SKIP_SUBJECT_ONES
-                && EvalStatsMutations.CounterPolicy.isSubjectCounter(new String(family, StandardCharsets.UTF_8));
+        return out;
+    }
+
+    /** A counter as text, as the planner reads it over every label: its row, family and qualifier, in hex. */
+    public static String counterRead(final byte[] row, final byte[] family, final byte[] qualifier) {
+        final java.util.HexFormat hex = java.util.HexFormat.of();
+        return hex.formatHex(row) + ':' + hex.formatHex(family) + ':' + hex.formatHex(qualifier);
+    }
+
+    /**
+     * Which counter cells a build leaves out (see {@link BulkBuild#leftOut(byte[], long, int, boolean,
+     * EvalStatsMutations.CounterPolicy, boolean)}): the counters something else counts, the policy for
+     * totals of 1, and whether the totals are one part's.
+     */
+    public record LeftOut(Set<String> countedElsewhere, EvalStatsMutations.CounterPolicy ones, boolean partTotals)
+            implements java.io.Serializable {
+        /** Zeros only: every other total stays. */
+        public static LeftOut zeros() {
+            return new LeftOut(Set.of(), EvalStatsMutations.CounterPolicy.ALL, false);
+        }
+
+        /** A new {@link CounterGroup} for one sorted range of cells. */
+        public <T> CounterGroup<T> group(final java.util.function.Consumer<T> keep) {
+            return new CounterGroup<>(this, keep);
+        }
+    }
+
+    /**
+     * One counter's cells, from a sorted range of a counter table's cells, held until the counter
+     * ends so that each cell's decision can count its counter's cells. A counter's cells are next to
+     * each other: they differ by label only, which sorts last. The cells kept go to {@code keep}, in
+     * their order. Call {@link #flush()} after the range's last cell.
+     */
+    public static final class CounterGroup<T> {
+        private final LeftOut rule;
+        private final java.util.function.Consumer<T> keep;
+        private final List<T> cells = new ArrayList<>();
+        private final List<Long> totals = new ArrayList<>();
+        private byte[] row;
+        private byte[] family;
+        private byte[] qualifier;
+
+        CounterGroup(final LeftOut rule, final java.util.function.Consumer<T> keep) {
+            this.rule = rule;
+            this.keep = keep;
+        }
+
+        /** A cell of the range, in order, with its total. */
+        public void add(final byte[] row, final byte[] family, final byte[] qualifier, final long total, final T cell) {
+            if (this.row != null && !(java.util.Arrays.equals(row, this.row) && java.util.Arrays.equals(family, this.family)
+                    && java.util.Arrays.equals(qualifier, this.qualifier))) {
+                flush();
+            }
+            if (this.row == null) {
+                this.row = row.clone();
+                this.family = family.clone();
+                this.qualifier = qualifier.clone();
+            }
+            cells.add(cell);
+            totals.add(total);
+        }
+
+        /** Decides the counter held, if any. */
+        public void flush() {
+            if (row == null) {
+                return;
+            }
+            int nonZero = 0;
+            for (final long t : totals) {
+                if (t != 0) {
+                    nonZero++;
+                }
+            }
+            final boolean elsewhere = !rule.countedElsewhere().isEmpty() && rule.countedElsewhere().contains(counterRead(row, family, qualifier));
+            for (int i = 0; i < cells.size(); i++) {
+                if (!leftOut(family, totals.get(i), nonZero, elsewhere, rule.ones(), rule.partTotals())) {
+                    keep.accept(cells.get(i));
+                }
+            }
+            cells.clear();
+            totals.clear();
+            row = null;
+        }
     }
 
     // ------------------------------------------------------------------ import

@@ -158,8 +158,9 @@ public class StatsAndGraphsIT extends StoreITBase {
         assertEquals(1.0, card(withA, CARDINALITY_OF.OBJECT, "v0"));
         assertEquals(1.0, card(withA, CARDINALITY_OF.PREDICATEOBJECT, NAME.getData(), "v0"));
         assertEquals(10_003.0, card(withA, CARDINALITY_OF.PREDICATE, NAME.getData()));
-        // Per label: mixed's unlabelled count (2) is written, its one statement under A isn't.
-        assertEquals(2.0, card(withA, CARDINALITY_OF.SUBJECT, mixed.getData()));
+        // Per label: mixed's one statement under A stays, next to its unlabelled count (2): a reader
+        // with A adds the two cells up. Left out, it would read 2 for that reader too.
+        assertEquals(3.0, card(withA, CARDINALITY_OF.SUBJECT, mixed.getData()));
         assertEquals(2.0, card(conf, CARDINALITY_OF.SUBJECT, mixed.getData()));
     }
 

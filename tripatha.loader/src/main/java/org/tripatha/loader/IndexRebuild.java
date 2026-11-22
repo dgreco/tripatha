@@ -199,7 +199,7 @@ public final class IndexRebuild {
             if (phases.contains(Phase.MERGE)) {
                 final Map<String, List<String>> runs = sortedRuns();
                 split(building, job, jobFile);
-                files.merge(bulk, runs, indexTables, counts::equals, (family, total) -> total == 0, time);
+                files.merge(bulk, runs, indexTables, counts::equals, BulkBuild.LeftOut.zeros(), time);
             }
             if (phases.contains(Phase.IMPORT)) {
                 files.importFiles(bulk, indexTables);

@@ -47,6 +47,14 @@ final class JobSpec implements Serializable {
     CounterPolicy leftOutPolicy;
     /** The totals are one part's ({@code generate --parts} over 1): only subject counters of 1 stay out. */
     boolean partTotals;
+    /** The counters something else in the store counts (the generator's reference data), as {@code BulkBuild.counterRead}. */
+    java.util.HashSet<String> countedElsewhere;
+
+    /** The rule for the counter cells this job leaves out. */
+    org.tripatha.loader.BulkBuild.LeftOut leftOut() {
+        return new org.tripatha.loader.BulkBuild.LeftOut(countedElsewhere == null ? java.util.Set.of() : countedElsewhere,
+                leftOutPolicy, partTotals);
+    }
     /** Every file statement's label expression, or null. */
     byte[] visibility;
     long maxBadLines;

@@ -655,7 +655,7 @@ The batch is written early once it holds 50,000 keys (`MAX_PENDING_COUNTERS`), s
 
 **Leaving counters of 1 out.** The planner reads a missing counter as 1 ([section 11.2](#112-how-a-patterns-cardinality-is-estimated)), so a counter whose total is 1 changes no estimate. Most subject counters are such: a subject rarely has two statements with the same object (`so`) or the same predicate (`sp`).
 
-`add(statements, CounterPolicy.SKIP_SUBJECT_ONES)` leaves out the `s`, `sp` and `so` cells whose sum for the call is 1, label by label.
+`add(statements, CounterPolicy.SKIP_SUBJECT_ONES)` leaves out the `s`, `sp` and `so` cells whose sum for the call is 1 and which are their counter's only cell. A counter has one cell per label, and a reader adds up the ones it can see: a 1 left out next to another label's cell would read one too low.
 - **When it is exact:** only when the call holds every statement of its subjects. So with this policy the whole call's counters are summed before any is written, without the early write at 50,000 keys.
 - **Who uses it:** the loader passes whole blocks of entities, which meet that condition ([section 18.3](#183-load)).
 - **What it saves:** about half of the counter cells it sends.
@@ -1947,7 +1947,7 @@ flowchart LR
     rfiles --> import["driver: import per table<br/>with load plans"]
 ```
 
-- **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up in the tasks and, after the sort, by each file's writer. Totals of 1 are left out by `BulkBuild.leftOut`, and only where the totals are the store's.
+- **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up in the tasks and, after the sort, by each file's writer. Totals of 1 are left out by `BulkBuild.leftOut`, and only where the totals are the store's, decided per counter: a 1 stays when it isn't its counter's only cell, and when the reference data `prepare` wrote counts that counter too.
 - **Files:** each table's tablets, cut further at sampled rows into files of about `--file-size` (at most the table's `table.file.max` per tablet, 15 by default). The entity index's shard rows are spread by column hash. The RFiles must be on one of Accumulo's volumes, since Accumulo imports only from those.
 - **Once each:** one timestamp per job, files named after their table and range, no speculation. Once an import starts, the files are never written again; a file that is gone was imported, and a directory that still holds Accumulo's `loadmap.json` is not imported again.
 - **Files as input:** read by line in parallel; each blank node label is prefixed with its file's id, so every split of a file agrees on it; bad lines are counted and left out up to a limit; `--distinct` drops repeats; `--visibility` labels the job's statements.
