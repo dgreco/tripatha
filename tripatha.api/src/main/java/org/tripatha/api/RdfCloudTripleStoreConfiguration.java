@@ -82,7 +82,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
      * A batch of lookups whose ranges can't overlap (an entity chain's links, {@code (s, p, ?)}) is
      * read on up to this many threads, each reading, decoding and matching its share of the ranges
      * (SCALE-STUDY.md O16). Unset, the store's {@code Capabilities.lookupThreads()} applies: 4 on
-     * RocksDB, 1 on Accumulo and HBase. 1 reads every batch on the query thread.
+     * RocksDB, 16 on Accumulo, 1 on HBase. 1 reads every batch on the query thread.
      */
     public static final String CONF_JOIN_LOOKUP_THREADS = "query.join.lookupthreads";
     /** Each of those threads gets at least this many lookups (default 256): a smaller batch is read on fewer. */
@@ -90,8 +90,8 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
     /**
      * An entity prefetch fetches its next window on another thread while the current one is
      * joined, from its second window on (SCALE-STUDY.md O16). Unset, it is on where lookups are
-     * read on several threads ({@code Capabilities.lookupThreads()} over 1: RocksDB), off on
-     * Accumulo and HBase until measured.
+     * read on several threads ({@code Capabilities.lookupThreads()} over 1: RocksDB and Accumulo),
+     * off on HBase until measured.
      */
     public static final String CONF_JOIN_PREFETCH_AHEAD = "query.join.prefetchahead";
     /**

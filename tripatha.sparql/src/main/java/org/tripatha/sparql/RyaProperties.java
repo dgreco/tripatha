@@ -51,10 +51,10 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param joinMergeSingle how long a star pattern on its own ({@code ?x a :C}) must be to be read
  *        as a merge of one list, its subjects in slices; 0 never, unset takes the default (10,000).
  * @param joinLookupThreads how many threads a batch of lookups whose ranges can't overlap (an
- *        entity chain's links) is read on; unset takes the store's default (4 on RocksDB, 1 on
- *        Accumulo and HBase), 1 reads every batch on the request's thread.
+ *        entity chain's links) is read on; unset takes the store's default (4 on RocksDB, 16 on
+ *        Accumulo, 1 on HBase), 1 reads every batch on the request's thread.
  * @param joinPrefetchAhead whether an entity prefetch fetches its next window while the current
- *        one is joined; unset takes the store's default (on for RocksDB, off for Accumulo and HBase).
+ *        one is joined; unset takes the store's default (on for RocksDB and Accumulo, off for HBase).
  * @param joinCountUnused whether a pattern whose object no other part of the query uses
  *        ({@code ?p :knows ?f} with {@code ?f} nowhere else) has its lookups counted by the store
  *        instead of read (SCALE-STUDY.md O26).
