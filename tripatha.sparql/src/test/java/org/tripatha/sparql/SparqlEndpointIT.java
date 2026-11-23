@@ -370,6 +370,28 @@ public class SparqlEndpointIT {
         assertEquals(403, post(SparqlController.SPARQL_UPDATE, "CLEAR SILENT GRAPH <urn:none>", null, "timeout=61").statusCode());
     }
 
+    /**
+     * A query past its time limit is answered 503, whatever the store was reading when the limit
+     * passed (RDF4J closes the query's reads from its timer thread; QueryTimeoutIT, ScanCloseIT). A
+     * count writes nothing before it is done, so the answer can still be an error status.
+     */
+    @Test
+    void aQueryPastItsTimeLimitIsAnswered503() throws Exception {
+        final StringBuilder data = new StringBuilder("INSERT DATA {");
+        for (int p = 0; p < 3; p++) {
+            for (int i = 0; i < 60; i++) {
+                for (int j = 0; j < 60; j++) {
+                    data.append(" <urn:n").append(i).append("> <urn:p").append(p).append("> <urn:n").append(j).append("> .");
+                }
+            }
+        }
+        assertEquals(204, post(SparqlController.SPARQL_UPDATE, data.append(" }").toString(), null).statusCode());
+        final HttpResponse<String> r = getWith(
+                "SELECT (COUNT(*) AS ?n) WHERE { ?a <urn:p0> ?b . ?b <urn:p1> ?c . ?c <urn:p2> ?d . ?d <urn:p0> ?e }", "timeout=1");
+        assertEquals(503, r.statusCode(), r.body());
+        assertTrue(r.body().startsWith("Query timed out"), r.body());
+    }
+
     @Test
     void approximateGraphSizes() throws Exception {
         assertEquals(204, update("INSERT DATA { GRAPH <urn:g1> { <urn:a> <urn:p> <urn:b> . <urn:a> <urn:q> <urn:c> } "
