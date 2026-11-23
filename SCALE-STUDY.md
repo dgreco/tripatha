@@ -159,12 +159,12 @@ So it is a measured go/no-go (M5), and nothing waits for it.
 | O13 | **`STRSTARTS` as a prefix range:** a filter `STRSTARTS(?o, "abc")` on a pattern's object narrows its scan to the objects whose data starts with `abc`, with no type check; the filter stays. Not `STRSTARTS(STR(?o), …)`: numbers, dates and booleans aren't stored as their text (section 6.7, ARCH.md 12.8) | R2 | measured (M8): `prefix` 92 → 0.7 ms on RocksDB and 72 → 2.2 ms on Accumulo, 133,579 → 522 cells. `query.prefixranges` turns it off | M8 | 1 | Done (PR #15) |
 | O14 | **Comparisons as value ranges:** `<`, `<=`, `>`, `>=` on a pattern's numeric or date object narrow its scan to the value range, one range per stored type; the filter stays. Needs a record of the datatypes each predicate's objects use (section 6.7) | R2 | the same, for numbers and dates | M8 | 1 | Done: datatype markers, storage version 1.1.0 with a write check, `ValueRangeOptimizer`; on by default (`query.valueranges`). Range queries 5 to 36 times faster on Accumulo, `class-value` 26 times; a condition most values pass is 4 to 8 times slower in a star (section 4.8, O25) |
 | O15 | **Adaptive batch windows in batched joins:** the first window is 64 left rows, doubling up to `query.join.batchsize`, as entity prefetch does (section 6.8) | R2 | measured (M8, section 4.6): `chain-limit` 114 → 19 ms on Accumulo and 6.9 → 0.7 ms on RocksDB (1,003 → 67 ranges); `type-limit` 164 → 40 ms and 22.6 → 1.6 ms (2,004 → 260 ranges). No cost on large joins: `chain` −7 % with 16 batch scans instead of 13 | M8 | 1 | Done (PR #15) |
-| O16 | **More lookups in flight:** batched joins and entity prefetch keep the next window's fetch running while the current one is joined, and more than one when the store has several servers (section 6.8) | R2 | the tablet server is the limit on the test cluster (4.6), so overlapping with client work gains nothing. More server parallelism (more tablets, concurrent batch scans) is the open question, for a cluster (M3) | M8 | 1 | Done for the reading of a batch (2026-11-19, section 4.14): a batch of disjoint lookups is read on up to `query.join.lookupthreads` threads, 4 by default on RocksDB, 1 on Accumulo and HBase until measured. WatDiv C3 2,371 → 1,189 ms on the native executable (−50 %); the join benchmark's lookup-bound queries −17 to −44 %. Then batches of several shapes, such as C2's, which bind objects (C2 126.7 → 79.1 ms), and fetching an entity chain's next window on another thread while the current one is joined (`query.join.prefetchahead`, on by default on RocksDB): C3 987 → 893 ms, WatDiv's complex queries 112.2 → 97.7 ms. Not done: the Accumulo and HBase defaults, 1 thread and no fetching ahead until measured on a cluster (M3). |
+| O16 | **More lookups in flight:** batched joins and entity prefetch keep the next window's fetch running while the current one is joined, and more than one when the store has several servers (section 6.8) | R2 | the tablet server is the limit on the test cluster (4.6), so overlapping with client work gains nothing. More server parallelism (more tablets, concurrent batch scans) is the open question, for a cluster (M3) | M8 | 1 | Done for the reading of a batch (2026-11-19, section 4.14): a batch of disjoint lookups is read on up to `query.join.lookupthreads` threads, 4 by default on RocksDB, 1 on Accumulo and HBase until measured. WatDiv C3 2,371 → 1,189 ms on the native executable (−50 %); the join benchmark's lookup-bound queries −17 to −44 %. Then batches of several shapes, such as C2's, which bind objects (C2 126.7 → 79.1 ms), and fetching an entity chain's next window on another thread while the current one is joined (`query.join.prefetchahead`, on by default on RocksDB): C3 987 → 893 ms, WatDiv's complex queries 112.2 → 97.7 ms. Accumulo's default measured on the user's cluster at 500M (2026-11-23, section 4.29): 16 threads, and so fetching ahead; the lookup-bound queries took 30 to 69 % less time than on 1 thread. Not done: HBase's, 1 thread and no fetching ahead until measured on a cluster. |
 | O17 | **Less work per looked-up row:** `BatchLookup` matches on the row's encoded object instead of encoding every result again, and allocates less per row (section 6.8) | R2 | dropped for joins: on Accumulo the query thread's CPU is 2 to 3 % of a join's wall time (4.6). It could matter for range scans, which are client-bound | M8 | 1 | Done for the lookup path's CPU (2026-11-19, section 4.14): batches whose ranges can't overlap skip the cell check (any shapes, unless one key's parts are a strict prefix of another's), entity chains also the objects' re-encoding, statement rows and RocksDB keys are decoded in one pass. WatDiv on the native executable: C3 3,872 → 2,268 ms (−41 %), the complex queries −24 %, all 100 queries −11 %; the join benchmark within noise. |
 | O18 | **IRI prefix codes**, only if M9 says go (section 6.9) | R1 | measured (M9): −4 to −5 % on disk, −25 to −35 % in the block cache, −44 to −57 % of the key bytes a writer sends, no clear change in scan and decode time | M9, D11 | 2 | Deferred (2026-11-16: below the bar on disk; revisit after M3, see 6.9) |
 | O19 | **RocksDB key decoding:** `RocksCodec` encodes and decodes keys by copying the runs between escapes in bulk, instead of a byte at a time through a synchronized `ByteArrayOutputStream` | — | measured with O20 on RocksDB (M8, against `rocksdb-20261116-204243`): `count-class` 71 → 25 ms, range scans −23 to −31 %, joins −13 to −19 % | — | 1 | Done (PR #15) |
 | O20 | **The object-type check as a row suffix:** `ScanSpec.rowSuffix`, set by the query engine when the type is the only row condition. RocksDB compares bytes. Accumulo and HBase filter with the equivalent linear `[\s\S]*` and the quoted suffix, instead of three open groups. It also fixes datatype IRIs being pasted into the expression unquoted, which let a `.` in a custom datatype IRI match any character | R2 | measured with O19, above. On Accumulo it means less tablet-server CPU per type-checked cell, not measured separately | — | 1 | Done (PR #15) |
-| O21 | **One range per subject:** when a window looks up two or more links of the same subject in `spo`, it reads the subject's range once and lets `BatchLookup`'s exact matching keep the cells asked for. A batch whose subject ranges return more than 64 cells per subject plus 1,024 is re-read one range per link (section 6.8) | R2 | measured (M8): `star-in` 17,594 → 8,799 ranges but 25,445 → 103,265 cells; `star-optional` 7,601 → 2,537 ranges, 9,345 → 28,772 cells. Accumulo: no change beyond noise. RocksDB: +64 % and +49 %. So `query.join.subjectranges` is **off by default**. Untested hypothesis: on a cold cache a seek is a block read and the extra cells are in the same block (M3) | M8 | 1 | Built, off by default |
+| O21 | **One range per subject:** when a window looks up two or more links of the same subject in `spo`, it reads the subject's range once and lets `BatchLookup`'s exact matching keep the cells asked for. A batch whose subject ranges return more than 64 cells per subject plus 1,024 is re-read one range per link (section 6.8) | R2 | measured (M8): `star-in` 17,594 → 8,799 ranges but 25,445 → 103,265 cells; `star-optional` 7,601 → 2,537 ranges, 9,345 → 28,772 cells. Accumulo: no change beyond noise. RocksDB: +64 % and +49 %. So `query.join.subjectranges` is **off by default**. Untested hypothesis: on a cold cache a seek is a block read and the extra cells are in the same block (M3) | M8 | 1 | Built, off by default. On the user's cluster at 500M (2026-11-23, warm, alternating runs, section 4.29): 2 % faster to 5 % slower, `star-in` 551,264 → 2,234,952 cells. A cold cache is still untried |
 | O22 | **Merge joins of subject-sorted ranges:** for a star with constant objects (`?x a :Person ; :worksFor :Acme ; :nationality :IT`), each pattern is a `po` range sorted by subject. Stream them side by side and intersect, instead of one lookup per row. The subject space is sliced so several slices are intersected at once (section 6.10) | R2 | measured on M10's class stars (section 4.7): 3 to 10 times faster than a lookup per driver row on the Accumulo test cluster, `class-large` 1,446 → 137 ms | M10 | 1 | Done: `SubjectMergeJoin`, on by default with a ratio per backend (35 Accumulo, 20 HBase, 8 RocksDB); measured in section 4.7. Slices in parallel and subject-only reads are O24 |
 | O23 | **Stars evaluated in the servers:** an optional subject-partitioned table, maintained like an index. A shard holds, per predicate and object, the sorted subjects of its share of the store. A server-side iterator (Accumulo) or coprocessor (HBase) intersects a star's lists inside every shard in parallel, and returns only the matching subjects (section 6.10) | R2 | the distributed join for "all entities matching X" (D1). To be measured against O22 | O22, D13 | 2 | Done on Accumulo and RocksDB (PR #17): the entity index (`index.entity`, storage version 1.2.0), read shard by shard by merge joins and intersected by the store (`Store.intersect`), in Accumulo's tablet servers (`tripatha.accumulo.iterators`) and with RocksDB's native seeks. The store also counts a star, or one pattern (a class's size). On the benchmark stars are 2.3 to 4 times faster, counts 2.7 to 4.2 times on Accumulo (one cell per shard back), `count-class` 4 times; value stars 5 to 10 % slower. The index costs 17 % more disk and a fifth of the load rate (section 4.10). On HBase since 2026-11-20 (D14, section 4.21): a coprocessor endpoint in its region servers, 39 to 81 % faster than without the index on stars and counts |
 | O24 | **Merge joins, part 2:** intersect a star's lists in slices of the subject space on several threads at once (cut at `spo`'s tablet splits or at sampled subjects), and read only each cell's subject instead of decoding the whole statement (section 6.10) | R2 | O22 reads one list per pattern on one thread, and decodes every cell | O22 | 1 | Done: subjects read as bytes, no statement decoding; slices cut at `spo`'s split points (`TableAdmin.splitRows`), up to `query.join.mergeslices` (4) on threads of their own. With 4 slices merges are 1.6 to 2 times faster on Accumulo and HBase and 3 times on RocksDB (section 4.9). At 100M triples the slices stalled when no lookups followed: 4 were 11 % faster than 1. Since 2026-11-18 they share one queue then: 3.7 times (section 4.11) |
@@ -185,10 +185,10 @@ All on a real cluster with NVMe disks, unless the row says otherwise.
 
 | # | Measurement | Feeds | Status |
 |---|---|---|---|
-| M1 | **Bytes on disk per table**, at 500M and 1B triples on Accumulo (the user's cluster holds 1B at most), and for a real dataset of up to 1B (D4). Replaces the README's test-load figure | section 4, cluster size, O3 | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster |
+| M1 | **Bytes on disk per table**, at 500M and 1B triples on Accumulo (the user's cluster holds 1B at most), and for a real dataset of up to 1B (D4). Replaces the README's test-load figure | section 4, cluster size, O3 | 500M done (2026-11-23, section 4.29): 72,887 MB, 145.8 bytes per triple, the text index the largest table (20.3 GB). 1B and a real dataset still to come. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster |
 | M2 | **Ingest on the current write path:** triples/s against the number of servers, and the compaction backlog. Also BACKENDS-STUDY.md's benchmark B0, which never ran | D2, section 4.5 | Planned: phase 3, on a cluster (2026-11-19) |
-| M3 | **The query suite:** lookups, star and chain joins, entity prefetch, text, geo, `stats:approxSize`, inference. p50 and p99, cold and warm, with scans and cells per query from the trace. Also `query.join.subjectranges` on and off, on a cold cache (O21) | the 1T run's acceptance | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster. The suite's queries return more rows as the store grows (star-in: 1,208 rows at 1M, 7,281 at 10M), so at 500M it measures large results. Selective queries, whose results don't grow with the store, are what make the growth from 500M to 1B, and the extrapolation to 1T, measurable: still to design |
-| M4 | **Single-client scan rates**, Scanner and BatchScanner | R2, O7, D1 | Not started. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options and `--scan-rates` (`ScanRates`); runbook in tripatha.loader/README.md, first at 500M on the user's cluster. First figures (2026-11-21, 10M on the user's cluster, section 4.28): 13 ms per lookup alone, 0.10 ms per lookup in batches on 16 threads |
+| M3 | **The query suite:** lookups, star and chain joins, entity prefetch, text, geo, `stats:approxSize`, inference. p50 and p99, cold and warm, with scans and cells per query from the trace. Also `query.join.subjectranges` on and off, on a cold cache (O21) | the 1T run's acceptance | First passes at 500M on the user's cluster (2026-11-23, section 4.29): warm p50 and p90 of the suite but `class-value-mid` and `class-value-wide`, and O16's and O21's settings as variants. Still to run: p99 and cold runs, those two queries, and 1B. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options; runbook in tripatha.loader/README.md, first at 500M on the user's cluster. The suite's queries return more rows as the store grows (star-in: 1,208 rows at 1M, 7,281 at 10M), so at 500M it measures large results. Selective queries, whose results don't grow with the store, are what make the growth from 500M to 1B, and the extrapolation to 1T, measurable: still to design |
+| M4 | **Single-client scan rates**, Scanner and BatchScanner | R2, O7, D1 | Measured at 500M (2026-11-23, section 4.29), cold and warm: a lookup alone 12.2 and 9.1 ms (p50), batches of 1,000 on 16 threads 0.29 and 0.28 s, a long scan 147k and 160k cells/s. The tools run against a cluster's store (2026-11-21): `bench.sh` with the loader's connection options and `--scan-rates` (`ScanRates`); runbook in tripatha.loader/README.md, first at 500M on the user's cluster. First figures (2026-11-21, 10M on the user's cluster, section 4.28): 13 ms per lookup alone, 0.10 ms per lookup in batches on 16 threads |
 | M5 | **The dictionary spike,** offline, on a 1B-triple sample (section 6.5) | D9, O11 | Not started |
 | M6 | **Bulk spikes:**<br>• Accumulo RFiles with labels and counters, written from JDK 25 and imported into a live table (with a `LoadPlan`)<br>• RocksDB SST files with `merge` entries, ingested into a family that already has counters<br>• HBase HFiles with visibility tags through the expression resolver, and the same counter file imported twice in coprocessor mode<br>• Spark executors running `tripatha.api` code on JDK 25 | O3, O10, D5 | Done (2026-11-20, section 4.17) for Accumulo, RocksDB and HBase in both counter modes: `AccumuloBulkSpikeIT`, `RocksBulkSpikeTest`, `HBaseBulkSpikeIT`. The Spark spike wasn't run then: D5 (a) was taken with the plan. It ran on 2026-11-21 (section 4.28): Spark 4.2.1 on Java 25, with Hadoop 3.5, runs Tripatha's encoding in its tasks (`SparkJava25SpikeTest`), and the job's jar runs under the distribution's own `spark-submit` |
 | M7 | **Maintenance at 500M and 1B** (10B planned before; the user's cluster holds 1B at most): `DROP GRAPH` of a small and of a large graph, graph sizes, an index rebuild | O4, O5 | Not started (with phase 5) |
@@ -1505,11 +1505,110 @@ Oxigraph's four clear wins (S3, S6, F3, F4) are the per-lookup key work of secti
 
   The tablet servers read all three (imported into scratch tables and scanned). lz4 and zstd don't load with the shipped jars: lz4-java is missing, and Hadoop's zstd needs its native library. `b500m_` keeps gz (O34).
 - **Compactions during a load in parts:** after the fourth import most tablets held four files of similar size, and the default `table.compaction.major.ratio` of 3 queued about 140 major compactions. While part 4 ran beside them (the compactors on 3.3–3.7 cores), one ZooKeeper fsync on the robust node took 54 s and the guard stopped the job; Ceph went to `HEALTH_WARN` with slow ops. With the ratio at 100 on the six large tables the rerun peaked at 3.1 s, at the same CPU limit. The ratio is back to its default since, so the store compacts once, after the load (O33).
-- **Next:** M1 once that compaction is done, then O29 to O32.
+- **Next:** M1 once that compaction is done (section 4.29), then O29 to O32.
 
 **Files per tablet:** at most the table's `table.file.max` (15 by default), read with the table's configuration: Accumulo compacts a tablet that holds more. With tablets of 10 GB, as at 1T, a tablet's files are then about 700 MB each.
 
 **The entity index's shards** get a tablet each (`SplitPlanner.shardSplits`, shared with `prepare`). Before 2026-11-21 `prepare` split at every shard row but the first, which is right on HBase, where a split row starts a region. On Accumulo a split row ends its tablet, so the first tablet held two shards and the last none. Stores prepared before then keep that layout; adding the first shard row as a split fixes one.
+
+## 4.29 Queries at 500M on the user's cluster (M1, M3, M4, O16)
+
+`b500m_` after its load and compaction (2026-11-23): 499,864,147 statements with the text, geo and entity indexes, on four tablet servers, one per node, reading CephFS with 64 MB block caches. The benchmark ran in a pod on the cluster (`bench.sh` with the loader's connection options), one query at a time, with nothing else running but Trino.
+
+**M1, bytes on disk,** after a full compaction of `eval` (22 min) and `textcount` (69 s):
+
+| Table | MB | Bytes per triple |
+|---|---|---|
+| spo | 10,741 | 21.5 |
+| po | 9,954 | 19.9 |
+| osp | 10,798 | 21.6 |
+| eval | 9,516 | 19.0 |
+| text | 20,286 | 40.6 |
+| geo | 426 | 0.9 |
+| entity | 11,034 | 22.1 |
+| textcount | 132 | 0.3 |
+| **All** | **72,887** | **145.8** |
+
+The text index is the largest table, nearly twice any statement table. At 10M the store took 135 bytes per triple (section 4.28).
+
+**M4, one client's scan rates** (`--scan-rates`): cold right after a rolling restart of the tablet servers, then warm.
+
+| | Cold | Warm | 10M, 2026-11-21 |
+|---|---|---|---|
+| A long scan of `spo` | 147,509 cells/s (20.0 MB/s), first cell after 415 ms | 160,233 cells/s (21.7 MB/s), 123 ms | |
+| A lookup alone, p50 / p90 / p99 | 12.2 / 21.5 / 41.5 ms | 9.1 / 14.7 / 26.9 ms | 13 ms (p50) |
+| 1,000 lookups in a batch, on 1 thread | 3.38 s | 2.88 s | 1.1 s |
+| on 4 threads | 0.92 s | 0.71 s | 0.23 s |
+| on 16 threads | 0.29 s | 0.28 s | 0.10 s |
+
+A batch on one thread costs about 3 ms per lookup, and 16 threads bring it to 0.3 ms: one thread keeps little of four servers busy. Batches cost 2.6 to 4 times what they did at 10M, which ran on 8 tablet servers (4 now, one per node).
+
+**M3, the suite's first passes,** with Accumulo's default then, 1 lookup thread: down to `text-and` a warm-up and 3 timed runs with a 600 s timeout; from `geo` on, one run with no warm-up and a 1,800 s timeout, so those figures are colder. The suite's queries return more rows as the store grows, so at 500M most return large results.
+
+| Query | Rows | p50 | Ranges | Cells |
+|---|---|---|---|---|
+| lookup | 8 | 18.0 ms | 2 | 9 |
+| star-in | 159,795 | 139.8 s | 380,015 | 551,264 |
+| star-optional | 62,859 | 32.9 s | 157,487 | 194,113 |
+| chain | 75,830 | 31.8 s | 113,697 | 169,386 |
+| star-unused | 74,859 | 29.5 s | 157,487 | 251,140 |
+| chain-unused | 51,866 | 24.9 s | 100,902 | 152,752 |
+| chain-limit | 10 | 65.5 ms | 67 | 192 |
+| type-limit | 100 | 177 ms | 260 | 950 |
+| range-number | 13,484 | 172 ms | 3 | 13,487 |
+| range-date | 248 | 32.8 ms | 3 | 250 |
+| range-double | 46,101 | 459 ms | 3 | 46,196 |
+| prefix | 26,268 | 213 ms | 2 | 26,269 |
+| text | 3,304 | 1.59 s | 3,307 | 8,909 |
+| text-and | 349,712 | 201.8 s | 717,765 | 1,069,478 |
+| geo | 518,939 | 631.8 s | 580,981 | 2,432,597 |
+| count-class | 1 | 5.1 s | 17 | 2,671,566 |
+| approx-class | 1 | 28 ms | 1 | 1 |
+| class-scan | 2,671,565 | 4.2 s | 17 | 2,671,566 |
+| class-label | 2,671,565 | 1,286 s | 987,970 | 2,323,716 |
+| class-2 | 7,149 | 78.3 s | 52,507 | 59,640 |
+| class-3 | 7,149 | 29.1 s | 104,997 | 112,130 |
+| class-attrs | 8,568 | 29.9 s | 209,977 | 222,254 |
+| class-large | 717,022 | 15.0 s | 51 | 12,379,373 |
+| class-count | 1 | 13.3 s | 51 | 12,379,373 |
+| class-3-count | 1 | 32.5 s | 104,997 | 112,130 |
+| class-value | 11,155 | 53.2 s | 92,208 | 149,648 |
+| class-value-int | 10,678 | 144.4 s | 264,216 | 336,780 |
+
+`class-value-mid` and `class-value-wide` didn't run: the pass was stopped for the variants below.
+- **What stays fast:** a lookup, the `LIMIT` queries, the value and prefix ranges (up to 46,101 rows in 459 ms), `approx-class`, and a class read as a merge (`class-scan`: 2.67M rows in 4.2 s).
+- **What doesn't:** queries that look up each row of a large result, one range at a time per thread: `class-label` (988k ranges, 21 min), `geo` (581k, 10.5 min), `text-and` (718k, 3.4 min), and the joins.
+- **`class-2` wasn't merged:** its second pattern was looked up for each of the first's rows (52,507 ranges), and it took 78 s where `class-3`, with one more pattern, took 29 s. Why is still to find, from its trace.
+
+**O16 and O21 on the cluster,** as variants of one run, timed alternately, on the queries whose lookups they decide (warm-up 1, 3 timed runs, p50). Every variant returned the same rows.
+
+| Query | 1 thread (the default then) | 4 threads | 16 threads | 4 threads, fetching ahead | Subject ranges |
+|---|---|---|---|---|---|
+| star-in | 141.3 s | 96.7 s (−32 %) | 99.2 s (−30 %) | 96.0 s (−32 %) | 147.9 s (+5 %) |
+| star-optional | 29.1 s | 10.5 s (−64 %) | 8.9 s (−69 %) | 10.4 s (−64 %) | 30.6 s (+5 %) |
+| chain | 31.5 s | 12.6 s (−60 %) | 12.1 s (−62 %) | 12.5 s (−60 %) | 31.2 s (−1 %) |
+| star-unused | 29.8 s | 21.8 s (−27 %) | 16.1 s (−46 %) | 21.8 s (−27 %) | 30.1 s (+1 %) |
+| chain-unused | 25.4 s | 11.7 s (−54 %) | 11.7 s (−54 %) | 11.7 s (−54 %) | 25.0 s (−2 %) |
+
+- **Lookup threads:** 4 gain most of it; 16 more where a window holds many lookups, as an entity chain's several links do (`star-unused`, `star-optional`), and never clearly less.
+- **Fetching ahead** changes nothing at 4 threads (±1 %). It moves most of the query thread's CPU to another thread (`star-in`: 3,036 → 811 ms).
+- **Subject ranges** were 2 % faster to 5 % slower and read up to 4 times the cells (`star-in` 551,264 → 2,234,952). They stay off. These runs were warm, so O21's cold-cache hypothesis is still untried.
+- **`star-in`** stays at about 96 s however many threads it has: something else bounds it. Its trace is next.
+
+**So Accumulo's default is now 16 lookup threads** (`Capabilities.lookupThreads()`), and with it fetching ahead, which follows the threads. The shipped default, checked against the old one with the tools of this change (a warm-up and 2 timed runs, alternately):
+
+| Query | The old default: 1 thread | 16 threads, no fetching ahead | The new default: 16 threads, fetching ahead |
+|---|---|---|---|
+| star-optional | 29.6 s | 8.8 s (−70 %) | 8.9 s (−70 %) |
+| chain | 31.2 s | 12.1 s (−61 %) | 11.9 s (−62 %) |
+| star-unused | 29.7 s | 16.3 s (−45 %) | 15.7 s (−47 %) |
+| chain-unused | 25.0 s | 11.7 s (−53 %) | 11.9 s (−52 %) |
+
+The rows were the same in every variant. Fetching ahead stays within 4 % of 16 threads without it, and takes most of the query thread's CPU off it (`star-optional`: 858 → 319 ms).
+
+The 16 were measured with one client. The threads come from one shared pool without a bound, so concurrent queries each take theirs, and every one adds load to the tablet servers: an endpoint serving many queries at once may want `tripatha.join-lookup-threads` lower. HBase keeps 1 thread and no fetching ahead until it is measured on a cluster.
+
+**Next:** `star-in`'s and `class-2`'s traces, then M7, M2 and the load to 1B.
 
 ---
 

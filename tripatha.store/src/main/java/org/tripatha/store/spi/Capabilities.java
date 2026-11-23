@@ -33,8 +33,9 @@ package org.tripatha.store.spi;
  * @param lookupThreads how many threads a batch of lookups is read on, by default
  *        ({@code query.join.lookupthreads}, SCALE-STUDY.md O16). Not a capability but a measured
  *        default: an embedded store's cells are decoded where they are read, so the client's CPU
- *        is the limit (section 4.14); a cluster's servers are (section 4.6), so 1 there until
- *        measured otherwise.
+ *        is the limit (section 4.14); a cluster's servers are, so more threads keep more of them
+ *        busy (section 4.29). 1 where not measured on a cluster yet. Above 1, an entity prefetch
+ *        also fetches its next window ahead by default.
  */
 public record Capabilities(boolean labels, boolean serverCombine, boolean serverRegex, boolean scanIterators,
         int maxRowBytes, double lookupCost, int lookupThreads) {

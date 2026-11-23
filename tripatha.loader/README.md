@@ -165,10 +165,11 @@ tripatha.loader/bench.sh $B --scan-rates
 
 # 3. M3, the query suite: latencies, CPU, and the scans and cells of each query from the trace. A short first pass:
 tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600
-#    then the cluster defaults still open (O16, O21), as variants of one run, on the queries whose lookups they decide
+#    then settings as variants of one run, on the queries whose lookups they decide. `default:` is the store's defaults
+#    (on Accumulo 16 lookup threads and fetching ahead since O16's cluster figures, SCALE-STUDY.md 4.29)
 tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600 --only star-in,star-optional,chain,star-unused,chain-unused \
-  --variant default: --variant threads4:query.join.lookupthreads=4 \
-  --variant ahead:query.join.lookupthreads=4,query.join.prefetchahead=true --variant subjects:query.join.subjectranges=true
+  --variant default: --variant old:query.join.lookupthreads=1,query.join.prefetchahead=false \
+  --variant noahead:query.join.prefetchahead=false --variant subjects:query.join.subjectranges=true
 ```
 
 - **Then 1B,** the cluster's ceiling: the same steps with `--triples 1B` under another prefix. Two sizes give each cost's growth with the store, from which the study extrapolates to 1T: there is no larger run.
