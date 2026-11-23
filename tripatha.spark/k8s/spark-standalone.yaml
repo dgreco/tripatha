@@ -22,8 +22,12 @@
 #   DATA_PATH     where Accumulo mounts it, the path of instance.volumes, for instance /var/accumulo/data
 #   WORKERS       one worker per node
 #   WORKER_CORES, WORKER_MEMORY (for executors, as Spark reads it: 3500m), WORKER_POD_MEMORY (the pod's), WORKER_DISK
+#   WORKER_CPU_LIMIT the pod's CPU limit, above WORKER_CORES (the task slots): an executor's JVM also runs GC,
+#                 the JIT and the shuffle's threads; 3 for 2 slots made a 100M part 15 % faster (SCALE-STUDY.md 4.28)
 #   AVOID_NODES   nodes that get no worker, comma-separated (kubernetes.io/hostname), or none: a node whose
 #                 disk is also a slow Ceph OSD's, since the shuffle spills to the node's own disk
+# Set every one: envsubst renders an unset variable as empty, and an empty limit makes kubectl refuse the
+# workers' Deployment ("The request is invalid").
 apiVersion: v1
 kind: Service
 metadata:
@@ -117,7 +121,8 @@ spec:
             - {name: data, mountPath: "${DATA_PATH}"}
             - {name: local, mountPath: /spark-local}
           # A CPU limit: where Ceph or ZooKeeper share the nodes, a worker that takes every idle core
-          # starves them (ZooKeeper's fsyncs reached 7.5 s, and Accumulo's sessions expired).
+          # starves them (ZooKeeper's fsyncs reached 7.5 s, and Accumulo's sessions expired). But above the
+          # task slots: at a limit equal to them the workers were throttled in 78-87 % of CFS periods.
           resources:
             requests: {cpu: "${WORKER_CORES}", memory: "${WORKER_POD_MEMORY}"}
-            limits: {cpu: "${WORKER_CORES}", memory: "${WORKER_POD_MEMORY}"}
+            limits: {cpu: "${WORKER_CPU_LIMIT}", memory: "${WORKER_POD_MEMORY}"}
