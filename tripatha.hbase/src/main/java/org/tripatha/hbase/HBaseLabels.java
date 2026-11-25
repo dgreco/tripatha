@@ -203,7 +203,7 @@ public final class HBaseLabels {
     /**
      * The ordinals of {@code labels}, read from their canaries as the store's own account: it sees
      * the canary of each label it holds, so a label's ordinal is revealed only to its holders. The
-     * bulk build writes visibility tags of ordinals with them (SCALE-STUDY.md O10, R10).
+     * bulk build writes visibility tags of ordinals with them (ARCH.md 20.6.4, O10).
      *
      * @throws IllegalStateException naming the labels without an ordinal: not held by the account,
      *         or not registered through Tripatha's labels command since canaries hold ordinals

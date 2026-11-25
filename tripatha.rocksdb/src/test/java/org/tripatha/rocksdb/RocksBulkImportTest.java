@@ -42,7 +42,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.store.spi.TableKind;
 import org.tripatha.store.spi.WriterOptions;
 
-/** {@link RocksBulkImport} through the SPI: the bulk build's files on RocksDB (SCALE-STUDY.md O3). */
+/** {@link RocksBulkImport} through the SPI: the bulk build's files on RocksDB (ARCH.md 20.6.4, O3). */
 class RocksBulkImportTest {
     @TempDir
     Path dir;

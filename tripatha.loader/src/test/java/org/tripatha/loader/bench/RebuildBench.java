@@ -39,7 +39,7 @@ import org.tripatha.test.TestBackend;
 import org.tripatha.test.TestBackends;
 
 /**
- * An index rebuild both ways, on the test backend (SCALE-STUDY.md O5): two stores of the same
+ * An index rebuild both ways, on the test backend (ARCH.md 20.6.5, O5): two stores of the same
  * generated dataset with the text and geo indexes are built, then the entity index is enabled on
  * each, built by the store's start-up rebuild ({@code index.rebuild=true}) on one and by the
  * loader's {@code rebuild} job on the other. Prints both times and the postings each wrote.

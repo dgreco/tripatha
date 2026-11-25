@@ -40,7 +40,7 @@ import org.tripatha.store.spi.WriterOptions;
 import org.tripatha.test.StoreITBase;
 
 /**
- * HBase's import for the bulk build (SCALE-STUDY.md O10), as the normal test account: HFiles with
+ * HBase's import for the bulk build (ARCH.md 20.6.4, O10), as the normal test account: HFiles with
  * visibility tags of label ordinals from the canaries, counters added up in coprocessor mode and
  * refused in increment mode.
  */

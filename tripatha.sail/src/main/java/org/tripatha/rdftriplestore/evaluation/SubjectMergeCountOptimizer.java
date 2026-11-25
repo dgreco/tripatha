@@ -32,8 +32,8 @@ import org.eclipse.rdf4j.query.algebra.helpers.AbstractQueryModelVisitor;
 import org.tripatha.api.RdfCloudTripleStoreConfiguration;
 
 /**
- * Turns the counts of a star into a {@link SubjectMergeCount}, for the store to count (SCALE-STUDY.md
- * O23): a group with no {@code GROUP BY} over a {@link SubjectMergeJoin}, or over a single star
+ * Turns the counts of a star into a {@link SubjectMergeCount}, for the store to count (ARCH.md
+ * 20.4.4, O23): a group with no {@code GROUP BY} over a {@link SubjectMergeJoin}, or over a single star
  * pattern ({@code ?x a :C}, the size of a class), whose every element is {@code COUNT(*)},
  * {@code COUNT(?x)}, {@code COUNT(DISTINCT ?x)} or {@code COUNT(DISTINCT *)}, ?x being the star's
  * subject. The star binds only ?x, and on every row, so the first two count its rows and the last

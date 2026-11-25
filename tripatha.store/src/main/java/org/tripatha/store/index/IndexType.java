@@ -22,7 +22,7 @@ import org.tripatha.api.layout.TableLayoutStrategy;
 public enum IndexType {
     TEXT("text"),
     GEO("geo"),
-    /** The entity index (SCALE-STUDY.md O23): its matches are answers, not candidates checked against spo. */
+    /** The entity index (ARCH.md 20.4.4, O23): its matches are answers, not candidates checked against spo. */
     ENTITY("entity");
 
     private final String id;

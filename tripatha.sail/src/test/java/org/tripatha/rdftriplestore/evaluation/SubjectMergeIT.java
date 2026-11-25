@@ -433,7 +433,7 @@ public class SubjectMergeIT extends RyaSailITBase {
                 for (final String query : counted) {
                     assertEquals(rows(plain, query), rows(fromIndex, query), query + which);
                     final List<String> reasons = reasons(fromIndex, query);
-                    // Every backend counts in the store (HBase in its region servers since D14).
+                    // Every backend counts in the store (HBase in its region servers, with its intersection endpoint).
                     assertTrue(reasons.stream().anyMatch(r -> r.startsWith("count:")), query + which + ": " + reasons);
                     assertFalse(reasons.stream().anyMatch(r -> r.startsWith("merge join")), query + which + ": " + reasons);
                 }

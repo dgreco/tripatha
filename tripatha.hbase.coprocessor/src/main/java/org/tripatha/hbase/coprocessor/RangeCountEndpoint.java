@@ -51,8 +51,8 @@ import org.tripatha.hbase.coprocessor.protobuf.IntersectionProtos.RangeCount;
 import org.tripatha.hbase.coprocessor.protobuf.IntersectionProtos.RowRange;
 
 /**
- * Counts, in HBase's region servers, the cells a scan of each range would return (SCALE-STUDY.md
- * O26), the way Accumulo's {@code RangeCountingIterator} counts in its tablet servers: one number
+ * Counts, in HBase's region servers, the cells a scan of each range would return (ARCH.md
+ * 20.2.7, O26), the way Accumulo's {@code RangeCountingIterator} counts in its tablet servers: one number
  * per range comes back instead of the cells. {@code HBaseStore} attaches it to its statement tables
  * and calls it once per region and page.
  * <ul>

@@ -42,7 +42,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.test.StoreITBase;
 
 /**
- * The entity index (SCALE-STUDY.md O23) on the selected backend: one posting per stored
+ * The entity index (ARCH.md 20.4.4, O23) on the selected backend: one posting per stored
  * statement, kept so by adds, deletes, graph drops, purges and rebuilds, and the storage version
  * that keeps older code from writing without postings.
  */

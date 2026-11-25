@@ -53,7 +53,7 @@ public interface RdfEvalStatsDAO<C extends RdfCloudTripleStoreConfiguration> {
     }
 
     /**
-     * Several counters at once (SCALE-STUDY.md M14): each read's {@link #getCardinality} value,
+     * Several counters at once (ARCH.md 20.2.6): each read's {@link #getCardinality} value,
      * -1 when it has none. This default reads them one by one; a store with a round trip per
      * read reads them together.
      */

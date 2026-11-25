@@ -32,7 +32,7 @@ import org.tripatha.store.spi.BulkImport;
 
 /**
  * SST files written with the store's own key and value encoding ({@link RocksCodec}), ingested
- * into a table's column family (SCALE-STUDY.md 4.17). Counter deltas are {@code merge} entries,
+ * into a table's column family (ARCH.md 20.6.4). Counter deltas are {@code merge} entries,
  * which the add operator applies on reads and compactions like online deltas. Ingestion moves the
  * files into the database, so a file that is gone was ingested.
  */

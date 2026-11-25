@@ -30,7 +30,7 @@ import org.tripatha.store.spi.Store;
 import org.tripatha.store.trace.StoreTrace;
 
 /**
- * Which datatypes the objects of each predicate use (SCALE-STUDY.md O14), so that a comparison
+ * Which datatypes the objects of each predicate use (ARCH.md 20.3.5, O14), so that a comparison
  * filter can read one range of values per type instead of every statement of the predicate.
  *
  * <p>A marker is a counter cell in {@code eval}: the predicate as row, family {@code t}, the

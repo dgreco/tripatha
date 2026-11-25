@@ -43,7 +43,7 @@ import org.tripatha.hbase.coprocessor.protobuf.IntersectionProtos.IntersectReque
 import org.tripatha.hbase.coprocessor.protobuf.IntersectionProtos.IntersectResponse;
 
 /**
- * The entity index's intersection in HBase's region servers (SCALE-STUDY.md O23, D14), what
+ * The entity index's intersection in HBase's region servers (ARCH.md 20.4.4, O23), what
  * Accumulo's {@code EntityIntersectingIterator} does in its tablet servers: for one shard row, the
  * subjects found under every term, with their counts, or only how many. {@code HBaseStore}
  * attaches it to its index tables and calls it once per shard row and page ({@link Leapfrog}).

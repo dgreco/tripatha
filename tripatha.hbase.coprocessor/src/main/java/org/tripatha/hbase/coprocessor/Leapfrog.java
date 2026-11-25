@@ -20,7 +20,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * One page of a shard row's intersection (SCALE-STUDY.md O23, D14): the subjects found in every
+ * One page of a shard row's intersection (ARCH.md 20.4.4, O23): the subjects found in every
  * list, each with the product of its cells per list, as Accumulo's {@code EntityIntersectingIterator}
  * and RocksDB's {@code RocksIntersection} give them. Each list is sought to the largest subject the
  * others are at, until they agree, so a long list costs about as many seeks as the shortest has

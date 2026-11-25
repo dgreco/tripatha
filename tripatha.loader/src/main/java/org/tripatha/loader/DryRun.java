@@ -142,7 +142,7 @@ public final class DryRun {
     /**
      * The counters the store keeps once every delta is summed, per family, over the first
      * entities of the range: what a load leaves in {@code eval} after its compactions, and what a
-     * bulk build would leave (SCALE-STUDY.md 4.2). The per-subject families ({@code s},
+     * bulk build would leave (ARCH.md 20.6.1). The per-subject families ({@code s},
      * {@code sp}, {@code so}) are final within an entity, so their figures hold at any size;
      * {@code o} and {@code po} fall as values repeat, so for a larger dataset theirs are upper bounds.
      */

@@ -1,6 +1,6 @@
 # The Spark build
 
-`tripatha.spark` loads a Tripatha store on Accumulo as a Spark job. It is the loader's bulk build (`run.sh build`, [SCALE-STUDY.md](../SCALE-STUDY.md) O3) spread over a cluster's executors instead of one machine's threads. It reads one of two inputs:
+`tripatha.spark` loads a Tripatha store on Accumulo as a Spark job. It is the loader's bulk build (`run.sh build`, [ARCH.md 18.5](../ARCH.md#185-build-the-bulk-build)) spread over a cluster's executors instead of one machine's threads. It reads one of two inputs:
 
 - **`generate`:** the loader's generated dataset (the same entities, triples and options as `run.sh load` and `build`), into a store that `run.sh prepare` prepared;
 - **`files`:** N-Triples and N-Quads files (`.nt`, `.nq`, `.ntriples`, `.nquads`, optionally `.gz` or `.bz2`; RDF 1.2 included), into a new store, or with `--append` into one that holds statements.
@@ -177,7 +177,7 @@ At 10M triples on one machine (12 cores, Spark in local mode on 10, the Accumulo
 | `generate` | 63.5 s: map 13.6, reduce 43.8, import 1.5 |
 | `files`: WatDiv sf100, 10,950,947 triples in 1.55 GB of N-Triples | 52.3 s: sample 0.7, map 14.2, reduce 28.5 |
 
-On one machine the job costs 1.25 times the loader's build. On a cluster both stages spread over every executor. Details in [SCALE-STUDY.md](../SCALE-STUDY.md) section 4.28.
+On one machine the job costs 1.25 times the loader's build. On a cluster both stages spread over every executor. Details in [ARCH.md section 20.6.6](../ARCH.md#2066-the-bulk-build-as-a-spark-job-o28).
 
 On the user's cluster (four RK3588 nodes, 1 GbE, Accumulo on CephFS), 500M triples with every index as five `generate` parts of 100M, four workers of 2 task slots, 2026-11-23:
 

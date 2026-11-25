@@ -54,7 +54,7 @@ import org.tripatha.api.domain.RyaValueRange;
 /**
  * Replaces a pattern {@code ?s p ?o} whose object a filter compares with constants by a
  * {@link ValueRangePattern}, which reads only the ranges of values the comparisons allow
- * (SCALE-STUDY.md O14): {@code ?obs :hasResult ?v FILTER(?v > 60)} reads the results above 60
+ * (ARCH.md 20.3.5, O14): {@code ?obs :hasResult ?v FILTER(?v > 60)} reads the results above 60
  * (widened a little), not every result.
  *
  * <p><b>Which comparisons:</b> the conjuncts {@code <}, {@code <=}, {@code >}, {@code >=} and
@@ -73,7 +73,7 @@ import org.tripatha.api.domain.RyaValueRange;
  * rewritten with {@code query.valueranges} off, a result limit, the hashed row layout, or row
  * regular expressions.
  *
- * <p><b>The estimate</b> (SCALE-STUDY.md O25): when the pattern is in a join, so that the join
+ * <p><b>The estimate</b> (ARCH.md 20.3.6, O25): when the pattern is in a join, so that the join
  * order depends on it, its ranges are counted, under the query's labels and in every graph, up to
  * the estimate of the shortest other pattern of the join, and at most
  * {@code query.valueranges.count} cells (1,000,000). A shorter range is estimated at its count;
@@ -193,7 +193,7 @@ public final class ValueRangeOptimizer implements QueryOptimizer {
      * Ranges that hold that many cells are at least as long as that pattern, so they wouldn't
      * drive the join, and counting further would only cost time. A fixed cap misplanned at scale:
      * at 100M triples a range of a few tens of thousands of cells reached 10,000 and was estimated
-     * as its whole predicate (SCALE-STUDY.md 4.11).
+     * as its whole predicate (ARCH.md 20.3.6).
      */
     private long countCap(final Join join, final StatementPattern sp, final long ceiling) {
         QueryModelNode top = join;

@@ -82,7 +82,7 @@ public final class TracedScans {
     }
 
     /**
-     * Reports a count the store makes without returning the cells (SCALE-STUDY.md O26): its start,
+     * Reports a count the store makes without returning the cells (ARCH.md 20.2.7, O26): its start,
      * then, through the consumer, how many counts came back, one per range. The cells counted stay
      * in the store, so they aren't the read's cells.
      */

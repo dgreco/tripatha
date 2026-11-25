@@ -210,7 +210,7 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
             raiseVersionForRebuildJob();
             if (conf.isPrefixRowsWithHash()) {
                 logger.warn("{} uses the hashed row layout (tbl.hashprefix), which is deprecated: it doesn't spread hot keys, costs 33 "
-                        + "bytes per spo and po row, and graph sizes and merge joins refuse it (SCALE-STUDY.md 5.3, O9). "
+                        + "bytes per spo and po row, and graph sizes and merge joins refuse it (ARCH.md 20.8, O9). "
                         + "It keeps working; leave it off for a new store.", tables.getSpo());
             }
             isInitialized.set(true);
@@ -301,7 +301,7 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
 
     /**
      * Subjects that divide the store's subjects into parts of similar size, sorted by their UTF-8
-     * bytes: {@code spo}'s split points cut to their subjects (SCALE-STUDY.md O24). Merge joins read
+     * bytes: {@code spo}'s split points cut to their subjects (ARCH.md 20.4.2, O24). Merge joins read
      * their lists in the slices between them. Kept a minute.
      *
      * @param slices how many slices are wanted; one fewer boundaries are returned, at most
@@ -340,7 +340,7 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
 
     /**
      * The datatypes of the objects of {@code predicate}, among the statements the configuration's
-     * labels can see (SCALE-STUDY.md O14).
+     * labels can see (ARCH.md 20.3.5, O14).
      *
      * @return the datatype IRIs, read from the markers; empty when they are unknown, in a store
      *         created before the markers

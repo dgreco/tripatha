@@ -38,7 +38,7 @@ public interface Store extends AutoCloseable {
     TableAdmin tables();
 
     /**
-     * The backend's import of sorted files (the bulk build, SCALE-STUDY.md O3), or empty when it
+     * The backend's import of sorted files (the bulk build, ARCH.md 20.6.4, O3), or empty when it
      * has none.
      */
     default java.util.Optional<BulkImport> bulk() {
@@ -84,7 +84,7 @@ public interface Store extends AutoCloseable {
     }
 
     /**
-     * The entity index's intersection, done by the store (SCALE-STUDY.md O23): in each row, the
+     * The entity index's intersection, done by the store (ARCH.md 20.4.4, O23): in each row, the
      * subjects (a cell's qualifier up to its first {@code 01} byte) found under every one of the
      * families. Each comes as one cell: the row, an empty family, the subject as qualifier, an
      * empty visibility, and as value the product of its cells under each family, in decimal. Only
@@ -116,7 +116,7 @@ public interface Store extends AutoCloseable {
 
     /**
      * How many cells a scan of each range with this spec would return, without returning them
-     * (SCALE-STUDY.md O26): the cells its labels, families, columns, time range and row and
+     * (ARCH.md 20.2.7, O26): the cells its labels, families, columns, time range and row and
      * qualifier filters show. The ranges must not overlap, and the counts come in their order.
      * This default reads the ranges with one {@link #batchScan} and counts each cell in the range
      * holding its row; a store that counts in its servers, or without decoding cells, overrides it.

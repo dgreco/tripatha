@@ -73,7 +73,7 @@ import jdk.jfr.consumer.RecordedFrame;
 import jdk.jfr.consumer.RecordingFile;
 
 /**
- * The local join benchmark (SCALE-STUDY.md, M8): a fixed query suite over a generated store, on
+ * The local join benchmark (ARCH.md 20.1): a fixed query suite over a generated store, on
  * the backend named by {@code -Dtripatha.test.backend}, without a cluster.
  *
  * <p>It loads the loader's dataset once (a RocksDB store named by
@@ -162,12 +162,12 @@ public final class JoinBench {
                 return;
             }
             if (settings.scanRates) {
-                // M4: one client's scan rates on spo.
+                // One client's scan rates on spo (ARCH.md 20.1).
                 new ScanRates(store, dataset.rdfConf(), gen, settings.lookups, out).run(settings.out, where);
                 return;
             }
             if (settings.fixedCost) {
-                // M14: where each query's time goes before and around its scans, on this backend.
+                // The fixed cost (ARCH.md 20.2.6): where each query's time goes before and around its scans, on this backend.
                 final StoreRdfConfiguration conf = dataset.rdfConf();
                 conf.setInfer(false);
                 settings.conf.forEach(conf::set);
@@ -431,7 +431,7 @@ public final class JoinBench {
                 "SELECT ?s WHERE { ?s a o:Sensor }"));
         q.add(new Query("class-label", "a whole class with each member's label: one lookup per member",
                 "SELECT ?s ?l WHERE { ?s a o:Sensor ; rdfs:label ?l }"));
-        // M10: "all entities matching X" (SCALE-STUDY.md D1), stars whose objects are constants.
+        // "All entities matching X" (ARCH.md 20.4): stars whose objects are constants.
         final String person = "?p o:worksFor <" + c.popularEmployer + "> ; o:nationality <" + c.topCountry + "> ";
         final String product = "?x a o:Product ; o:category <" + c.topCategory + "> ; o:inStock true ";
         q.add(new Query("class-2", "people of one nationality working for one employer: two constant lists",
@@ -968,8 +968,8 @@ public final class JoinBench {
                   --load-only          load the store (or keep a loaded one) and stop: no runs
                   --bulk               build the store with the bulk build (sorted files, imported) instead of load
                   --fixed-cost         instead of the suite's timings, where each query's time goes: open, parse, plan
-                                       (and its scans), run (M14; FixedCost), with --warmup and --runs
-                  --scan-rates         instead of the suite, one client's scan rates on spo (M4; ScanRates): a long scan,
+                                       (and its scans), run (FixedCost), with --warmup and --runs
+                  --scan-rates         instead of the suite, one client's scan rates on spo (ScanRates): a long scan,
                                        lookups one at a time, and batches of lookups
                   --lookups 1000       lookups per measurement of --scan-rates
 

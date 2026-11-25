@@ -50,7 +50,7 @@ public interface RyaQueryEngine<C extends RdfCloudTripleStoreConfiguration> exte
 
     /**
      * How many statements a lookup of each pattern would return, counted by the store instead of
-     * read (SCALE-STUDY.md O26). The patterns must resolve to one table and context, and their
+     * read (ARCH.md 20.2.7, O26). The patterns must resolve to one table and context, and their
      * ranges must not overlap.
      *
      * @return the counts, in the patterns' order; null if this engine can't count

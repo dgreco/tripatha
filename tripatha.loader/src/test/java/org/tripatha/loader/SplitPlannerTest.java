@@ -73,7 +73,7 @@ class SplitPlannerTest {
         final SplitPlanner.Sample sample = SplitPlanner.sample(new EntityGenerator(o.genConfig()), conf, o.statsOnes(), 5_000);
         final Map<String, Integer> splits = SplitPlanner.splitsBySize(sample, o.genConfig().entities(), o.compression(),
                 o.tabletSize(), 0, conf.getTableLayoutStrategy().getGeo());
-        // SCALE-STUDY.md 4.4: about 21 B per triple on disk for each statement table, so about 2,100 tablets of 10 GB.
+        // ARCH.md 20.6.3: about 21 B per triple on disk for each statement table, so about 2,100 tablets of 10 GB.
         for (final String t : List.of("t_spo", "t_po", "t_osp")) {
             assertTrue(splits.get(t) > 1_200 && splits.get(t) < 3_000, t + ": " + splits.get(t));
         }

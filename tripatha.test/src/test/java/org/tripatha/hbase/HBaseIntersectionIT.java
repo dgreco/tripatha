@@ -50,7 +50,7 @@ import org.tripatha.test.StoreITBase;
 import org.tripatha.test.hbase.MiniHBaseSingleton;
 
 /**
- * HBase's intersection endpoint (SCALE-STUDY.md D14), as the normal test account, against the
+ * HBase's intersection endpoint (ARCH.md 20.4.4), as the normal test account, against the
  * client's own reading of the same postings ({@code Store.scan} of each term):
  * <ul>
  * <li>labels the account doesn't hold stay hidden, whatever the request asks for, as on a client

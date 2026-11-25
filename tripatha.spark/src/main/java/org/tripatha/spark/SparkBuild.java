@@ -75,7 +75,7 @@ import org.tripatha.store.spi.Store;
 import scala.Tuple2;
 
 /**
- * The bulk build as a Spark job, for Accumulo (SCALE-STUDY.md D5): statements from the loader's
+ * The bulk build as a Spark job, for Accumulo (ARCH.md 20.6.6): statements from the loader's
  * generator or from N-Triples and N-Quads files become the cells {@code load} writes, Spark's
  * shuffle combines and sorts them per file, the executors write them as RFiles into a work
  * directory on one of Accumulo's volumes (S3 or HDFS), and the driver imports them.

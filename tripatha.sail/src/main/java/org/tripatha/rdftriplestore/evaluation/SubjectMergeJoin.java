@@ -30,7 +30,7 @@ import org.eclipse.rdf4j.query.algebra.TupleExpr;
 
 /**
  * The join of a star's constant patterns, {@code ?x p1 o1 . ?x p2 o2 …}, evaluated by reading
- * each pattern's subjects in order and intersecting them (SCALE-STUDY.md O22). Each pattern is
+ * each pattern's subjects in order and intersecting them (ARCH.md 20.4.1, O22). Each pattern is
  * one range of {@code po}, whose rows for a predicate and object are sorted by subject.
  *
  * <p>A merge of one list is a long pattern on its own (O7a): its subjects are read in slices,

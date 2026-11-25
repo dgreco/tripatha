@@ -61,7 +61,7 @@ import org.tripatha.store.trace.StoreTrace;
  * <p>
  * The same counters give the size of a class ({@link #classSizes}: its {@code rdf:type}
  * statements, the all-graphs {@code po} counter) and of a predicate ({@link #predicateSizes}:
- * the all-graphs {@code p} counter), SCALE-STUDY.md O8. Neither family leaves out counters of 1.
+ * the all-graphs {@code p} counter), ARCH.md 20.3.9, O8. Neither family leaves out counters of 1.
  */
 public final class GraphSizes {
     /** How long a list of predicates is reused before the po table is read again. */

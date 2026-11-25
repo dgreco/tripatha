@@ -39,7 +39,7 @@ import org.tripatha.store.spi.BulkImport;
 /**
  * RFiles written with the public writer and the table's own configuration (its compression and
  * block sizes), imported with a load plan that names each file's rows, so Accumulo doesn't read
- * them to place them (SCALE-STUDY.md 4.17). Counter deltas are cells holding the delta as decimal
+ * them to place them (ARCH.md 20.6.4). Counter deltas are cells holding the delta as decimal
  * text, which the counter table's combiner adds to what the table holds, as it adds online deltas.
  * The import moves the files into the table, so a file that is gone was imported.
  */

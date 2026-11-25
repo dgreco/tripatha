@@ -118,7 +118,7 @@ Tripatha is built to run on distributed stores, Accumulo and HBase clusters, wit
 **What Tripatha carries that the others don't.** Everything in it is designed so that the same plan holds on a cluster of servers:
 - **A storage interface three backends share.** Each call is one native operation of a distributed sorted store (a range scan, a batch of ranges, a write), and the query engine works on generic labelled cells, not on structures only one machine could hold.
 - **A visibility label on every statement,** checked on every cell read, with the same meaning on every backend.
-- **Terms stored whole in every key,** with no dictionary of integer IDs. At 10^12 triples a dictionary would hold hundreds of billions of terms, and whether one pays there is an open decision (SCALE-STUDY.md O11, M5).
+- **Terms stored whole in every key,** with no dictionary of integer IDs. At 10^12 triples a dictionary would hold hundreds of billions of terms, and whether one pays there is an open decision (ARCH.md 20.8, O11).
 - **Every statement three times** (`spo`, `po`, `osp`), plus cardinality counters and an entity index, all kept up to date on every write: it takes updates online.
 - **RDF4J's evaluation,** binding set by binding set.
 
@@ -171,7 +171,7 @@ Geometric means, in ms:
 - **Ahead overall, despite the extra work.** Over all 100 queries, Oxigraph takes 1.7 times Tripatha's time and QLever 4.2 times.
 - **The 85 small queries** (linear, star, snowflake): 1.28 ms on Tripatha, 1.66 on Oxigraph, 6.79 on QLever.
   - Tripatha leads on the stars and the linear queries.
-  - It trails Oxigraph on four templates (S3, S6, F3, F4), by 0.2 to 2 ms. There its time goes into building and hashing the keys of thousands of lookups, where Oxigraph joins integer IDs (SCALE-STUDY.md 4.26).
+  - It trails Oxigraph on four templates (S3, S6, F3, F4), by 0.2 to 2 ms. There its time goes into building and hashing the keys of thousands of lookups, where Oxigraph joins integer IDs (ARCH.md 20.2.6).
   - QLever spends a few milliseconds even on the smallest: 4.1 ms on L1, which returns 0 to 3 rows.
 - **The complex queries:** Tripatha is 16 % faster than QLever and 7 times faster than Oxigraph.
   - QLever stays ahead on C2 (35.7 against 47.8 ms), and on L2 and S4.
@@ -213,7 +213,7 @@ WatDiv is the work of G. Aluç, O. Hartig, M. T. Özsu and K. Daudjee: *[Diversi
 
 ### Tripatha's own benchmark
 
-The **join benchmark** (`tripatha.loader/bench.sh`) measures Tripatha's own optimizations on any of its three backends, in-process, over a generated store of 10M triples. It is how each optimization in [SCALE-STUDY.md](SCALE-STUDY.md) was measured, and it isn't used against other engines. See [tripatha.loader/README.md](tripatha.loader/README.md).
+The **join benchmark** (`tripatha.loader/bench.sh`) measures Tripatha's own optimizations on any of its three backends, in-process, over a generated store of 10M triples. It is how each optimization in [ARCH.md section 20](ARCH.md#20-speed-and-scale-the-optimizations) was measured, and it isn't used against other engines. See [tripatha.loader/README.md](tripatha.loader/README.md).
 
 ## Storage backends
 

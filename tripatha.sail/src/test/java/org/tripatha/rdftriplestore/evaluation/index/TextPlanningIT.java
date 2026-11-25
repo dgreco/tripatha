@@ -46,7 +46,7 @@ import org.tripatha.store.trace.StoreTrace;
 import org.tripatha.store.trace.TraceEvent;
 
 /**
- * An {@code AND} of two words with more postings than a probe reads (SCALE-STUDY.md O6): the
+ * An {@code AND} of two words with more postings than a probe reads (ARCH.md 20.3.8, O6): the
  * posting counts make the rarer one drive, whichever comes first in the query. Without complete
  * counts, every large word looks the same and the first one drives, as before.
  */

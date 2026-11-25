@@ -57,7 +57,7 @@ import org.tripatha.store.spi.TableWriter;
  * a rebuild. Enabling it on a store that already has data, or changing its definition (for
  * example the indexed predicates), leaves it BUILDING until the store is started with
  * {@link RdfCloudTripleStoreConfiguration#CONF_INDEX_REBUILD}, or a loader rebuild job makes it
- * READY ({@link RdfCloudTripleStoreConfiguration#CONF_INDEX_REBUILD_JOB}, SCALE-STUDY.md O5). An
+ * READY ({@link RdfCloudTripleStoreConfiguration#CONF_INDEX_REBUILD_JOB}, ARCH.md 20.6.5, O5). An
  * index table that exists while its index is switched off stops the store from starting: writes
  * would no longer reach it and it would silently become incomplete.
  * <p>

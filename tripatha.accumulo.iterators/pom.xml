@@ -25,7 +25,7 @@ limitations under the License.
     <artifactId>tripatha.accumulo.iterators</artifactId>
     <name>Tripatha Accumulo iterators</name>
     <description>Server-side iterators for Accumulo's tablet servers: the intersection of the entity index's posting
-        lists inside each shard (SCALE-STUDY.md O23). Depends only on Accumulo itself, so that this one jar is what
+        lists inside each shard (ARCH.md 20.4.4, O23). Depends only on Accumulo itself, so that this one jar is what
         an operator puts in every tablet server's lib/ext directory.</description>
 
     <dependencies>

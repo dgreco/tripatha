@@ -39,10 +39,10 @@ public interface TableLayoutStrategy {
     public String getText();
     /** The geospatial index table. */
     public String getGeo();
-    /** The entity index table (SCALE-STUDY.md O23). */
+    /** The entity index table (ARCH.md 20.4.4, O23). */
     public String getEntity();
 
-    /** The text index's posting counts, a counter table (SCALE-STUDY.md O6). */
+    /** The text index's posting counts, a counter table (ARCH.md 20.3.8, O6). */
     public default String getTextCount() {
         return getText() + "count";
     }

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Runs the local join benchmark (SCALE-STUDY.md, M8) on a test backend, without a cluster:
+# Runs the local join benchmark (ARCH.md 20.1) on a test backend, without a cluster:
 #
 #   tripatha.loader/bench.sh [--build] [--backend rocksdb|accumulo|hbase] [options]   (--help for the options)
 #

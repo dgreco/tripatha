@@ -51,7 +51,7 @@ import org.tripatha.store.spi.WriterOptions;
 import org.tripatha.test.StoreITBase;
 
 /**
- * The bulk spike for Accumulo (SCALE-STUDY.md M6): RFiles written from this JVM with the public
+ * The bulk spike for Accumulo (ARCH.md 20.6.4): RFiles written from this JVM with the public
  * {@link RFile} writer, from the cells the online path makes ({@link AccumuloStore#toMutation}),
  * imported into live tables. Their labels must hold, and counter cells must add up with what the
  * table holds through its combiner, as online deltas do.

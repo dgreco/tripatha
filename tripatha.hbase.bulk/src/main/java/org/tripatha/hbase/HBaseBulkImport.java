@@ -48,7 +48,7 @@ import org.tripatha.api.persist.RyaDAOException;
 import org.tripatha.store.spi.BulkImport;
 
 /**
- * The bulk build's files on HBase (SCALE-STUDY.md O10, 4.17): HFiles in Tripatha's cell layout
+ * The bulk build's files on HBase (ARCH.md 20.6.4, O10): HFiles in Tripatha's cell layout
  * ({@link HBaseCodec}), written with HBase's own writer and the column family's settings, then
  * loaded with {@link BulkLoadHFiles} as the store's user.
  * <ul>

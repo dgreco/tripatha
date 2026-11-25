@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.tripatha.store.StoreRdfConfiguration;
 
 /**
- * Which patterns {@link CountedPatternOptimizer} counts (SCALE-STUDY.md O26): those on the right of
+ * Which patterns {@link CountedPatternOptimizer} counts (ARCH.md 20.2.7, O26): those on the right of
  * a join or OPTIONAL whose object the rest of the query never names, in any of the ways a name can
  * be used.
  */

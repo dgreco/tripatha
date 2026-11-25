@@ -42,7 +42,7 @@ import org.tripatha.store.spi.WriterOptions;
 import org.tripatha.test.StoreITBase;
 
 /**
- * The store side of value ranges (SCALE-STUDY.md O14) on the selected backend: what the datatype
+ * The store side of value ranges (ARCH.md 20.3.5, O14) on the selected backend: what the datatype
  * markers record, who sees them, what removes them, the storage version that comes with them,
  * and what a value range reads.
  */

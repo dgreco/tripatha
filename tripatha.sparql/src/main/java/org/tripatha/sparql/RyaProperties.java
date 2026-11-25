@@ -57,12 +57,12 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *        one is joined; unset takes the store's default (on for RocksDB and Accumulo, off for HBase).
  * @param joinCountUnused whether a pattern whose object no other part of the query uses
  *        ({@code ?p :knows ?f} with {@code ?f} nowhere else) has its lookups counted by the store
- *        instead of read (SCALE-STUDY.md O26).
+ *        instead of read (ARCH.md 20.2.7, O26).
  * @param textIndex whether to keep the full-text index that speeds up {@code text:matches}.
  * @param textIndexPredicates the predicates whose text literals are indexed; empty for all.
  * @param geoIndex whether to keep the geospatial index that speeds up GeoSPARQL filters
  * @param entityIndex whether to keep the entity index, in which stars of constant patterns are
- *        intersected shard by shard (SCALE-STUDY.md O23).
+ *        intersected shard by shard (ARCH.md 20.4.4, O23).
  * @param entityIndexShards its shard count; unset takes the count it was built with..
  * @param rebuildIndexes whether to build, at startup, indexes that don't cover the stored
  *        statements yet (turned on over existing data, or redefined).

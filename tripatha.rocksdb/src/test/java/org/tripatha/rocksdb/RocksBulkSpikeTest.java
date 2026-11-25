@@ -41,7 +41,7 @@ import org.tripatha.store.spi.TableKind;
 import org.tripatha.store.spi.WriterOptions;
 
 /**
- * The bulk spike for RocksDB (SCALE-STUDY.md M6): SST files written with the store's own key and
+ * The bulk spike for RocksDB (ARCH.md 20.6.4): SST files written with the store's own key and
  * value encoding, then ingested into tables that already hold data. Counter deltas go in as
  * {@code merge} entries, so they must add up with what the table holds, on reads and after a
  * compaction, as online deltas do.

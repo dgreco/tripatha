@@ -94,7 +94,7 @@ public final class IndexVerifier {
     }
 
     /**
-     * The text index's posting counts against its postings (SCALE-STUDY.md O6), word by word,
+     * The text index's posting counts against its postings (ARCH.md 20.3.8, O6), word by word,
      * predicate and label, under every label the account holds.
      *
      * @return the counters below their postings (a write path that doesn't count) and above them

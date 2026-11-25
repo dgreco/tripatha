@@ -93,7 +93,7 @@ final class BatchedJoinStep implements QueryEvaluationStep {
 
     /**
      * Adds the lookup a row will make for a pattern: to {@code counted} when the pattern's object
-     * is used nowhere else and the row can be counted ({@link CountedPattern}, SCALE-STUDY.md O26),
+     * is used nowhere else and the row can be counted ({@link CountedPattern}, ARCH.md 20.2.7, O26),
      * else to {@code keys}.
      */
     static void addKey(final StatementPattern sp, final BindingSet row, final Set<LookupKey> keys, final Set<LookupKey> counted) {

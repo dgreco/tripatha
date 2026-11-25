@@ -48,7 +48,7 @@ import org.tripatha.api.resolver.impl.ShortRyaTypeResolver;
 
 /**
  * The ranges of stored values that comparisons of a pattern's object with constants allow
- * (SCALE-STUDY.md O14): one range per datatype the predicate's objects use.
+ * (ARCH.md 20.3.5, O14): one range per datatype the predicate's objects use.
  *
  * <p>A range only has to hold every value the comparisons can keep, never only those: the filter
  * stays in the query and decides every row. So the bounds are widened on purpose, and a

@@ -26,7 +26,7 @@ import org.eclipse.rdf4j.query.algebra.UnaryTupleOperator;
 
 /**
  * Counts of a star, {@code SELECT (COUNT(*) AS ?n) WHERE { ?x p1 o1 ; p2 o2 }}, that the store can
- * give without returning the matches (SCALE-STUDY.md O23): its argument is the {@link Group} it
+ * give without returning the matches (ARCH.md 20.4.4, O23): its argument is the {@link Group} it
  * stands for, and which is evaluated as it is whenever the store can't count. The group's own
  * argument is a {@link SubjectMergeJoin}, or a single star pattern ({@code ?x a :C}, a class's size).
  *

@@ -4182,7 +4182,7 @@ public final class IntersectionProtos extends org.apache.hbase.thirdparty.com.go
   }
   /**
    * <pre>
-   * How many cells each range holds in this region (SCALE-STUDY.md O26): the cells a scan with these
+   * How many cells each range holds in this region (ARCH.md 20.2.7, O26): the cells a scan with these
    * labels, column prefixes and time range would return. The ranges are sorted and don't overlap.
    * </pre>
    *
@@ -4755,7 +4755,7 @@ public final class IntersectionProtos extends org.apache.hbase.thirdparty.com.go
     }
     /**
      * <pre>
-     * How many cells each range holds in this region (SCALE-STUDY.md O26): the cells a scan with these
+     * How many cells each range holds in this region (ARCH.md 20.2.7, O26): the cells a scan with these
      * labels, column prefixes and time range would return. The ranges are sorted and don't overlap.
      * </pre>
      *

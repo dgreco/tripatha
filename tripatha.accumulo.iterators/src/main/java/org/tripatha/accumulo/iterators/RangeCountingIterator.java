@@ -29,7 +29,7 @@ import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
 
 /**
  * Counts the cells of each range a scan seeks, in the tablet server, and returns one entry instead
- * of them (SCALE-STUDY.md O26): the range's last key, valued its count in decimal. A range with no
+ * of them (ARCH.md 20.2.7, O26): the range's last key, valued its count in decimal. A range with no
  * cell gives nothing. It sits above every other iterator of the scan, so it counts what a scan
  * would return: the cells the labels, columns, time range and row filters leave.
  *
