@@ -56,32 +56,32 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
      * (their attributes) in one batch per window of driver rows, instead of one per join.
      */
     public static final String CONF_JOIN_ENTITY_PREFETCH = "query.join.entityprefetch";
-    /** Whether lookups of patterns whose object no other part of the query uses are counted, not read (SCALE-STUDY.md O26). */
+    /** Whether lookups of patterns whose object no other part of the query uses are counted, not read (ARCH.md 20.2.7, O26). */
     public static final String CONF_JOIN_COUNT_UNUSED = "query.join.countunused";
     /**
      * Read a subject asked for by several lookups of one batch as one range (default false: on
-     * the warm join benchmark it read 4 times the cells for no gain, SCALE-STUDY.md O21).
+     * the warm join benchmark it read 4 times the cells for no gain, ARCH.md 20.2.8, O21).
      */
     public static final String CONF_JOIN_SUBJECT_RANGES = "query.join.subjectranges";
     /** Narrow a pattern's scan to the prefix a {@code STRSTARTS} filter requires of its object (default true). */
     public static final String CONF_QUERY_PREFIX_RANGES = "query.prefixranges";
     /**
      * Merge joins (O22) read their lists in up to this many slices of the subject space, cut at
-     * the store's split points and intersected on threads of their own (SCALE-STUDY.md O24;
+     * the store's split points and intersected on threads of their own (ARCH.md 20.4.2, O24;
      * default 4). 1 reads each list whole.
      */
     public static final String CONF_JOIN_MERGE_SLICES = "query.join.mergeslices";
     /**
      * A star pattern on its own ({@code ?x a :C}, the driver of a chain, a count without the entity
      * index) is read as a merge of one list when its {@code po} counter is at least this long:
-     * subjects only, in slices on threads of their own (SCALE-STUDY.md O7a; default 10,000).
+     * subjects only, in slices on threads of their own (ARCH.md 20.4.3, O7a; default 10,000).
      * 0 leaves such patterns to RDF4J.
      */
     public static final String CONF_JOIN_MERGE_SINGLE = "query.join.mergesingle";
     /**
      * A batch of lookups whose ranges can't overlap (an entity chain's links, {@code (s, p, ?)}) is
      * read on up to this many threads, each reading, decoding and matching its share of the ranges
-     * (SCALE-STUDY.md O16). Unset, the store's {@code Capabilities.lookupThreads()} applies: 4 on
+     * (ARCH.md 20.2.4, O16). Unset, the store's {@code Capabilities.lookupThreads()} applies: 4 on
      * RocksDB, 16 on Accumulo, 1 on HBase. 1 reads every batch on the query thread.
      */
     public static final String CONF_JOIN_LOOKUP_THREADS = "query.join.lookupthreads";
@@ -89,7 +89,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
     public static final String CONF_JOIN_LOOKUP_THREAD_KEYS = "query.join.lookupthreadkeys";
     /**
      * An entity prefetch fetches its next window on another thread while the current one is
-     * joined, from its second window on (SCALE-STUDY.md O16). Unset, it is on where lookups are
+     * joined, from its second window on (ARCH.md 20.2.4, O16). Unset, it is on where lookups are
      * read on several threads ({@code Capabilities.lookupThreads()} over 1: RocksDB and Accumulo),
      * off on HBase until measured.
      */
@@ -97,18 +97,18 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
     /**
      * Narrow a pattern's scan to the values a comparison filter on its object allows, one range
      * per stored datatype, when the store's datatype markers say every type sorts like its values
-     * (SCALE-STUDY.md O14; default true).
+     * (ARCH.md 20.3.5, O14; default true).
      */
     public static final String CONF_QUERY_VALUE_RANGES = "query.valueranges";
     /**
      * How many cells of a pattern's value ranges are counted, at most, to estimate it for join
-     * ordering (SCALE-STUDY.md O25; default 10,000). Ranges with fewer cells are estimated at
+     * ordering (ARCH.md 20.3.6, O25; default 10,000). Ranges with fewer cells are estimated at
      * their count; ranges that reach it like their whole predicate. 0 counts nothing and
      * estimates a tenth of the predicate.
      */
     public static final String CONF_QUERY_VALUE_RANGE_COUNT = "query.valueranges.count";
     /**
-     * Merge joins of a star's constant patterns (SCALE-STUDY.md O22): a pattern {@code ?x p o}
+     * Merge joins of a star's constant patterns (ARCH.md 20.4.1, O22): a pattern {@code ?x p o}
      * whose list of subjects is at most this many times the shortest such list of the star is
      * read in subject order and intersected with it, instead of being looked up once per row.
      * About the cost of one lookup over the cost of one cell read in sequence; 0 turns it off.
@@ -121,7 +121,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
     /** Maintain the geospatial index (table {@code <prefix>geo}). */
     public static final String CONF_INDEX_GEO = "index.geo";
     /**
-     * Maintain the entity index (table {@code <prefix>entity}, SCALE-STUDY.md O23): every
+     * Maintain the entity index (table {@code <prefix>entity}, ARCH.md 20.4.4, O23): every
      * statement's subject, filed under its predicate and object in one of a fixed number of
      * shards, so that a star's constant patterns can be intersected shard by shard.
      */
@@ -140,7 +140,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
     /** Rebuild indexes that are not ready (enabled on existing data, or redefined) when the store starts. */
     public static final String CONF_INDEX_REBUILD = "index.rebuild";
     /**
-     * The id of a loader rebuild job (SCALE-STUDY.md O5): the store marks the indexes that aren't
+     * The id of a loader rebuild job (ARCH.md 20.6.5, O5): the store marks the indexes that aren't
      * ready BUILDING for that job, clears the redefined ones, and leaves building them to the job.
      */
     public static final String CONF_INDEX_REBUILD_JOB = "index.rebuild.job";
@@ -151,12 +151,12 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
     public static final String CONF_INDEX_STATE_REFRESH = "index.state.refresh";
     /**
      * Let text search size a word past its probe by the text index's posting counts, when they are
-     * complete (SCALE-STUDY.md O6; default true). Off, every large word looks alike, as before.
+     * complete (ARCH.md 20.3.8, O6; default true). Off, every large word looks alike, as before.
      */
     public static final String CONF_QUERY_TEXT_COUNTS = "query.textcounts";
     /**
-     * Read the counters a query's join ordering needs together, before it starts (SCALE-STUDY.md
-     * M14; default true): one round trip instead of one per pattern.
+     * Read the counters a query's join ordering needs together, before it starts (ARCH.md
+     * 20.2.6; default true): one round trip instead of one per pattern.
      */
     public static final String CONF_QUERY_STATS_PREFETCH = "query.stats.prefetch";
     /** Let queries use the secondary indexes (they are still maintained when this is false). */
@@ -176,7 +176,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
      * The hashed row layout (prefix {@code spo} rows with a hash of the subject, {@code po} rows
      * with one of the predicate).
      *
-     * @deprecated it doesn't spread hot keys (every row of a predicate gets the same prefix), costs 33 bytes per {@code spo} and {@code po} row, and graph sizes and merge joins refuse it (SCALE-STUDY.md 5.3, D7, O9). Stores on it keep working.
+     * @deprecated it doesn't spread hot keys (every row of a predicate gets the same prefix), costs 33 bytes per {@code spo} and {@code po} row, and graph sizes and merge joins refuse it (ARCH.md 20.8, O9). Stores on it keep working.
      */
     @Deprecated
     public static final String CONF_PREFIX_ROW_WITH_HASH = "tbl.hashprefix";
@@ -412,7 +412,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
         return getBoolean(CONF_PREFIX_ROW_WITH_HASH, false);
     }
 
-    /** @deprecated it doesn't spread hot keys (every row of a predicate gets the same prefix), costs 33 bytes per {@code spo} and {@code po} row, and graph sizes and merge joins refuse it (SCALE-STUDY.md 5.3, D7, O9). Stores on it keep working; a new store should leave it off. */
+    /** @deprecated it doesn't spread hot keys (every row of a predicate gets the same prefix), costs 33 bytes per {@code spo} and {@code po} row, and graph sizes and merge joins refuse it (ARCH.md 20.8, O9). Stores on it keep working; a new store should leave it off. */
     @Deprecated
     public void setPrefixRowsWithHash(final Boolean val) {
         Preconditions.checkNotNull(val);
@@ -894,7 +894,7 @@ public abstract class RdfCloudTripleStoreConfiguration extends Configuration {
 
     /**
      * @return whether the lookups of a pattern whose object no other part of the query uses are
-     *         counted by the store instead of read (SCALE-STUDY.md O26; default true)
+     *         counted by the store instead of read (ARCH.md 20.2.7, O26; default true)
      */
     public boolean isJoinCountUnused() {
         return getBoolean(CONF_JOIN_COUNT_UNUSED, true);

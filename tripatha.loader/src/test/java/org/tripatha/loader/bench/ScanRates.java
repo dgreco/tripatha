@@ -42,7 +42,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.store.spi.Store;
 
 /**
- * One client's scan rates on {@code spo} (SCALE-STUDY.md M4): what the query path's reads cost on
+ * One client's scan rates on {@code spo} (ARCH.md 20.1): what the query path's reads cost on
  * a store, before any query. Three measurements, through the storage SPI the queries use:
  * <ul>
  * <li><b>One long scan</b> (Accumulo's Scanner): cells and bytes per second over one range, for up

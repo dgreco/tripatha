@@ -40,8 +40,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Runs a standard benchmark's queries against SPARQL endpoints and compares them (SCALE-STUDY.md
- * M11): WatDiv's, on Tripatha's endpoint over RocksDB and on other engines loaded with the same
+ * Runs a standard benchmark's queries against SPARQL endpoints and compares them (ARCH.md
+ * 20.1): WatDiv's, on Tripatha's endpoint over RocksDB and on other engines loaded with the same
  * data. Run it with {@code tripatha.loader/compare.sh}, which generates the data and the queries,
  * loads the engines and serves them one at a time.
  *

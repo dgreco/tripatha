@@ -20,7 +20,7 @@ import java.util.Optional;
 
 /**
  * Sorted files of a table in the backend's own format, and their import: the bulk build's way
- * into a store, bypassing the write path (SCALE-STUDY.md 6.2, O3). A {@link Store} offers it
+ * into a store, bypassing the write path (ARCH.md 20.6.4, O3). A {@link Store} offers it
  * through {@link Store#bulk()} when its backend can import files.
  * <p>
  * The caller hands a file its cells in key order: row, family, qualifier and visibility, each
@@ -30,7 +30,7 @@ import java.util.Optional;
  * backend adds to what the table holds on import, as it adds online deltas.
  * <p>
  * Importing a file again counts its counters again on some backends and not at all on others
- * (SCALE-STUDY.md 4.17), so a caller imports each file once and records it.
+ * (ARCH.md 20.6.4), so a caller imports each file once and records it.
  */
 public interface BulkImport {
 

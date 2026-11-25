@@ -29,7 +29,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.store.visibility.VisibilityExpression;
 
 /**
- * Counts the cells of some ranges with native iteration (SCALE-STUDY.md O26), as {@link RocksScan}
+ * Counts the cells of some ranges with native iteration (ARCH.md 20.2.7, O26), as {@link RocksScan}
  * would return them, without building them: each key is read once, its family and label checked
  * where it lies, and its value read only when a time range needs the timestamp. With no family,
  * label or time condition, every key in a range counts. Row and qualifier filters and single

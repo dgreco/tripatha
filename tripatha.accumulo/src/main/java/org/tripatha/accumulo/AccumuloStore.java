@@ -98,10 +98,10 @@ public final class AccumuloStore implements Store {
     /** Accumulo's default key size constraint. */
     private static final int MAX_KEY_BYTES = 1_048_576;
     /**
-     * A lookup costs about 35 cells read in sequence, measured on the test cluster (SCALE-STUDY.md 4.6,
+     * A lookup costs about 35 cells read in sequence, measured on the test cluster (ARCH.md 20.4.1,
      * O22). A batch of lookups is read on 16 threads: on a cluster of four tablet servers at 500M
      * triples, the join benchmark's lookup-bound queries took 30 to 69 % less time than on one
-     * (SCALE-STUDY.md 4.29, O16).
+     * (ARCH.md 20.2.4, O16).
      */
     private static final Capabilities CAPABILITIES = new Capabilities(true, true, true, true, MAX_KEY_BYTES, 35, 16);
 
@@ -247,7 +247,7 @@ public final class AccumuloStore implements Store {
         return total;
     }
 
-    /** The iterator that counts each range in the tablet servers (SCALE-STUDY.md O26), in Tripatha's iterator jar. */
+    /** The iterator that counts each range in the tablet servers (ARCH.md 20.2.7, O26), in Tripatha's iterator jar. */
     public static final String RANGE_COUNTER = "org.tripatha.accumulo.iterators.RangeCountingIterator";
     /** Above every other iterator of a scan, those a configuration adds included: it counts what they leave. */
     private static final int RANGE_COUNTER_PRIORITY = 10_000;

@@ -187,7 +187,7 @@ public class RyaStoreEvalStatsDAO implements RdfEvalStatsDAO<StoreRdfConfigurati
 
     /**
      * Every counter in one batch scan, where reading them one by one would be a round trip each
-     * (SCALE-STUDY.md M14: 0.4 to 0.65 ms a read on the Accumulo test cluster): one row per read,
+     * (ARCH.md 20.2.6: 0.4 to 0.65 ms a read on the Accumulo test cluster): one row per read,
      * the reads' columns, and each cell added to the reads it is the counter of.
      */
     @Override

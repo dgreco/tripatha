@@ -24,7 +24,7 @@ limitations under the License.
 
     <artifactId>tripatha.hbase.bulk</artifactId>
     <name>Tripatha HBase bulk import</name>
-    <description>The bulk build's files on HBase (SCALE-STUDY.md O10): HFiles with visibility tags, written with HBase's
+    <description>The bulk build's files on HBase (ARCH.md 20.6.4, O10): HFiles with visibility tags, written with HBase's
         own writer and bulk-loaded. A module of its own because it needs hbase-server; tripatha.hbase stays on
         hbase-client and finds this one through ServiceLoader, so only the loader depends on it.</description>
 

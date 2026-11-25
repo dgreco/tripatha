@@ -105,13 +105,13 @@ public final class HBaseStore implements Store {
 
     /**
      * The endpoint that intersects the entity index's shards in the region servers (module
-     * tripatha.hbase.coprocessor, SCALE-STUDY.md O23 and D14), attached to every index table.
+     * tripatha.hbase.coprocessor, ARCH.md 20.4.4, O23), attached to every index table.
      */
     public static final String INTERSECTION_ENDPOINT = "org.tripatha.hbase.coprocessor.IntersectionEndpoint";
 
     /**
      * The endpoint that counts ranges in the region servers (module tripatha.hbase.coprocessor,
-     * SCALE-STUDY.md O26), attached to every statement table.
+     * ARCH.md 20.2.7, O26), attached to every statement table.
      */
     public static final String COUNT_ENDPOINT = "org.tripatha.hbase.coprocessor.RangeCountEndpoint";
 
@@ -185,7 +185,7 @@ public final class HBaseStore implements Store {
         } catch (final IOException e) {
             throw new RyaDAOException(e);
         }
-        // A lookup costs about 20 cells read in sequence, measured on the test cluster (SCALE-STUDY.md 4.7, O22).
+        // A lookup costs about 20 cells read in sequence, measured on the test cluster (ARCH.md 20.4.1, O22).
         this.capabilities = new Capabilities(labels, options.counters() == CounterMode.COPROCESSOR, true, false,
                 HBaseCodec.MAX_ROW_BYTES, 20, 1);
         if (labels) {
@@ -214,7 +214,7 @@ public final class HBaseStore implements Store {
     }
 
     /**
-     * The bulk build's import (SCALE-STUDY.md O10), from {@code tripatha.hbase.bulk} when it is on
+     * The bulk build's import (ARCH.md 20.6.4, O10), from {@code tripatha.hbase.bulk} when it is on
      * the classpath: it needs hbase-server, which this module leaves out.
      */
     @Override

@@ -512,7 +512,7 @@ public class RdfCloudTripleStoreConnection<C extends RdfCloudTripleStoreConfigur
 
         /**
          * Fetches the statements for some lookups and counts the statements of others
-         * ({@link #count}, SCALE-STUDY.md O26), all at once, and serves them from memory until the
+         * ({@link #count}, ARCH.md 20.2.7, O26), all at once, and serves them from memory until the
          * returned handle is closed.
          *
          * @return the handle, or {@code null} if the batch was too large to hold.
@@ -543,7 +543,7 @@ public class RdfCloudTripleStoreConnection<C extends RdfCloudTripleStoreConfigur
 
         /**
          * Fetches the statements for many lookups, without holding them: any thread may call it,
-         * as an entity prefetch does for its next window (SCALE-STUDY.md O16). The query thread
+         * as an entity prefetch does for its next window (ARCH.md 20.2.4, O16). The query thread
          * then holds the result with {@link #hold}.
          *
          * @return the statements per lookup, or {@code null} if the batch was too large to hold
@@ -587,7 +587,7 @@ public class RdfCloudTripleStoreConnection<C extends RdfCloudTripleStoreConfigur
 
         /**
          * How many statements {@code getStatements} would return for this lookup, without them
-         * (SCALE-STUDY.md O26): from a held batch's counts or statements, else counted by the store.
+         * (ARCH.md 20.2.7, O26): from a held batch's counts or statements, else counted by the store.
          *
          * @return the count, or -1 when the store can't count this lookup (the caller then looks it up)
          */
@@ -727,7 +727,7 @@ public class RdfCloudTripleStoreConnection<C extends RdfCloudTripleStoreConfigur
         }
 
         /**
-         * The entity index (SCALE-STUDY.md O23), when queries may use it: it is READY and
+         * The entity index (ARCH.md 20.4.4, O23), when queries may use it: it is READY and
          * {@code query.useindex} is on. Null otherwise.
          */
         public org.tripatha.store.index.EntityIndex entityIndex() {
@@ -956,7 +956,7 @@ public class RdfCloudTripleStoreConnection<C extends RdfCloudTripleStoreConfigur
 
         /**
          * What a batch of lookups fetched: the statements of some, the counts of others
-         * (SCALE-STUDY.md O26).
+         * (ARCH.md 20.2.7, O26).
          */
         public record Batch(Map<LookupKey, List<Statement>> statements, Map<LookupKey, Long> counts) {
         }

@@ -376,7 +376,7 @@ public final class LoaderOptions {
         return flag("geo-index");
     }
 
-    /** Whether to keep the entity index (SCALE-STUDY.md O23). */
+    /** Whether to keep the entity index (ARCH.md 20.4.4, O23). */
     public boolean entityIndex() {
         return flag("entity-index");
     }
@@ -658,7 +658,7 @@ public final class LoaderOptions {
 
     /**
      * How many times smaller than the keys it writes a table is on disk ({@code --compression},
-     * 7 by default: what the statement tables measured, SCALE-STUDY.md 5.1), for prepare's size
+     * 7 by default: what the statement tables measured, ARCH.md 20.6.3), for prepare's size
      * estimates.
      */
     public double compression() {

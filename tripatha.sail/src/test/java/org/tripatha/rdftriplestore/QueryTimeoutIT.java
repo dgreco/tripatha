@@ -34,8 +34,8 @@ import org.tripatha.store.StoreRdfConfiguration;
 /**
  * A query past its time limit ends with RDF4J's {@link QueryInterruptedException} (the endpoint's
  * 503), whatever it is doing when the limit passes. RDF4J closes the query's iterations from a timer
- * thread, so the store's reads are closed while the query thread may be inside one (SCALE-STUDY.md
- * 4.28: on Accumulo that read threw instead, and the query failed with a plain RuntimeException).
+ * thread, so the store's reads are closed while the query thread may be inside one (on
+ * Accumulo that read threw instead, and the query failed with a plain RuntimeException).
  */
 public class QueryTimeoutIT extends RyaSailITBase {
     /** Nodes, each linked to every node by each of three predicates. */

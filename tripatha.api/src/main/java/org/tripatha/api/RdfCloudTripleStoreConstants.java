@@ -111,11 +111,11 @@ public class RdfCloudTripleStoreConstants {
      * The newest storage version this code writes. A DAO refuses to write to a store whose
      * version is newer than this, since such a store may rely on writes it doesn't make:
      * <ul>
-     *   <li>1.1.0: every statement has its datatype markers (SCALE-STUDY.md O14);</li>
+     *   <li>1.1.0: every statement has its datatype markers (ARCH.md 20.3.5, O14);</li>
      *   <li>1.2.0: the entity index is on, so every statement must have its posting there
-     *       (SCALE-STUDY.md O23);</li>
+     *       (ARCH.md 20.4.4, O23);</li>
      *   <li>1.3.0: a loader rebuild job has run on the store, so while an index is BUILDING every
-     *       writer must record its deletes and refuse graph drops during a job (SCALE-STUDY.md O5).</li>
+     *       writer must record its deletes and refuse graph drops during a job (ARCH.md 20.6.5, O5).</li>
      * </ul>
      */
     public static final Value VERSION = VALUE_FACTORY.createLiteral("1.3.0");

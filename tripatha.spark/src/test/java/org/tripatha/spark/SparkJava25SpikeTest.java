@@ -33,7 +33,7 @@ import org.tripatha.api.resolver.RyaTripleContext;
 import org.tripatha.api.resolver.triple.TripleRow;
 
 /**
- * The spike of SCALE-STUDY.md D5 and M6: Spark 4.2, in local mode on Java 25 with Hadoop 3.5, runs
+ * The Spark spike of the bulk build as a Spark job (ARCH.md 20.6.6): Spark 4.2, in local mode on Java 25 with Hadoop 3.5, runs
  * Tripatha's own encoding in its tasks.
  */
 class SparkJava25SpikeTest {

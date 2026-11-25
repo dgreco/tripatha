@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The entity index's intersection in HBase's region servers (SCALE-STUDY.md O23, D14), served by
+// The entity index's intersection in HBase's region servers (ARCH.md 20.4.4, O23), served by
 // org.tripatha.hbase.coprocessor.IntersectionEndpoint, and the counts of ranges (O26), served by
 // org.tripatha.hbase.coprocessor.RangeCountEndpoint. Regenerate the Java code with
 // tripatha.hbase.coprocessor/generate-protos.sh after changing this file.
@@ -75,7 +75,7 @@ message RowRange {
   optional bool stop_inclusive = 4;
 }
 
-// How many cells each range holds in this region (SCALE-STUDY.md O26): the cells a scan with these
+// How many cells each range holds in this region (ARCH.md 20.2.7, O26): the cells a scan with these
 // labels, column prefixes and time range would return. The ranges are sorted and don't overlap.
 message CountRequest {
   repeated RowRange ranges = 1;

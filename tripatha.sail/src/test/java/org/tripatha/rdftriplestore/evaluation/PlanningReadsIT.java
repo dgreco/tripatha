@@ -42,7 +42,7 @@ import org.tripatha.store.trace.StoreTrace;
 import org.tripatha.store.trace.TraceEvent;
 
 /**
- * The counters join ordering reads, read together before it starts (SCALE-STUDY.md M14): the
+ * The counters join ordering reads, read together before it starts (ARCH.md 20.2.6): the
  * same estimates, so the same plans and rows, in one round trip instead of one per pattern.
  */
 public class PlanningReadsIT extends RyaSailITBase {

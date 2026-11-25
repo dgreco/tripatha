@@ -45,7 +45,7 @@ import org.tripatha.store.spi.BulkImport;
 import org.tripatha.store.spi.Store;
 
 /**
- * The bulk build (SCALE-STUDY.md 6.2, O3): the dataset written as sorted files in each backend's
+ * The bulk build (ARCH.md 20.6.4, O3): the dataset written as sorted files in each backend's
  * own format and imported, instead of through the write path. Three phases, each resumable:
  * <ol>
  * <li><b>sort:</b> worker threads generate their blocks and write them with a DAO of their own
@@ -57,7 +57,7 @@ import org.tripatha.store.spi.Store;
  * {@link #FAN_IN} of them, so the next phase reads a bounded number of files per tablet.</li>
  * <li><b>merge:</b> for each table and each of its tablets' row ranges, the runs of every part
  * are merged into one file in the backend's format ({@link BulkImport}). Counter totals of 1 are
- * left out except in family {@code p} (D6, section 6.3), with {@code --stats-ones skip}; the
+ * left out except in family {@code p} (ARCH.md 18.5), with {@code --stats-ones skip}; the
  * datatype markers always stay.</li>
  * <li><b>import:</b> every file once. Backends move the files they import, so a file that is gone
  * after a failure was imported.</li>

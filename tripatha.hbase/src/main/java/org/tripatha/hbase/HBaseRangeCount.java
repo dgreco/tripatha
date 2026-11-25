@@ -46,7 +46,7 @@ import org.tripatha.store.spi.KeyRange;
 import org.tripatha.store.spi.ScanSpec;
 
 /**
- * Counts disjoint ranges in HBase's region servers (SCALE-STUDY.md O26), with the
+ * Counts disjoint ranges in HBase's region servers (ARCH.md 20.2.7, O26), with the
  * {@code RangeCountEndpoint} of {@code tripatha.hbase.coprocessor}: the ranges are grouped by the
  * region holding their start, each region counts its group in one call, and the regions are asked
  * at once. A response gives the region's bounds and where its page ended; every part of a range

@@ -103,7 +103,7 @@ public class RyaQueryOptimizerPipeline implements QueryOptimizerPipeline {
 
     @Override
     public Iterable<QueryOptimizer> getOptimizers() {
-        // The store intersects the entity index's shards (SCALE-STUDY.md O23).
+        // The store intersects the entity index's shards (ARCH.md 20.4.4, O23).
         final boolean storeIntersects = tripleSource instanceof org.tripatha.rdftriplestore.RdfCloudTripleStoreConnection.StoreTripleSource<?> store
                 && store.entityIntersectsInServers();
         final boolean untracked = !strategy.isTrackResultSize() && !strategy.isTrackTime();
@@ -133,7 +133,7 @@ public class RyaQueryOptimizerPipeline implements QueryOptimizerPipeline {
             // which then sees the much smaller indexed patterns.
             optimizers.add(indexSearch);
         }
-        // The counters the estimates below need, in one round trip (M14), now that the patterns are final.
+        // The counters the estimates below need, in one round trip (O27, ARCH.md 20.2.6), now that the patterns are final.
         if (statistics instanceof RdfCloudTripleStoreEvaluationStatistics<?> counted) {
             optimizers.add((expr, dataset, bindings) -> counted.prefetch(expr));
         }
@@ -159,7 +159,7 @@ public class RyaQueryOptimizerPipeline implements QueryOptimizerPipeline {
             // The counts of a whole star, or of one pattern, done by the store too.
             optimizers.add(new SubjectMergeCountOptimizer(conf, untracked));
         }
-        // Lookups whose object nothing else uses ask for counts (SCALE-STUDY.md O26): on the final joins.
+        // Lookups whose object nothing else uses ask for counts (ARCH.md 20.2.7, O26): on the final joins.
         optimizers.add(new CountedPatternOptimizer(conf));
         return optimizers;
     }

@@ -70,7 +70,7 @@ import org.tripatha.store.spi.Store;
 import org.tripatha.store.spi.WriterOptions;
 
 /**
- * Builds a store's indexes that aren't ready (SCALE-STUDY.md O5) as a batch job: {@code spo} read
+ * Builds a store's indexes that aren't ready (ARCH.md 20.6.5, O5) as a batch job: {@code spo} read
  * by split range on worker threads (and processes, with {@code --part}), the indexes' cells
  * sorted into runs, merged into files in the backend's format and imported, as the bulk build
  * does ({@link BulkFiles}). Every phase resumes. Any store will do, whatever wrote it.

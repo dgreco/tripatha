@@ -40,7 +40,7 @@ import org.tripatha.rdftriplestore.utils.FixedStatementPattern;
 
 /**
  * Answers the {@code stats:} patterns from the statistics counters instead of the store
- * (SCALE-STUDY.md O8), each with a few counter reads where {@code COUNT(*)} would read every
+ * (ARCH.md 20.3.9, O8), each with a few counter reads where {@code COUNT(*)} would read every
  * statement it counts:
  * <ul>
  * <li>{@code ?graph stats:approxSize ?n}: each named graph with data, and its approximate number

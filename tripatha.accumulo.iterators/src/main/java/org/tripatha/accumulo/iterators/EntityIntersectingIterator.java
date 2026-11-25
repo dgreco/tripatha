@@ -34,8 +34,8 @@ import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
 import org.apache.hadoop.io.Text;
 
 /**
- * Intersects the posting lists of Tripatha's entity index inside each shard row (SCALE-STUDY.md
- * O23), on the tablet server, so that only the matching subjects leave it.
+ * Intersects the posting lists of Tripatha's entity index inside each shard row (ARCH.md
+ * 20.4.4, O23), on the tablet server, so that only the matching subjects leave it.
  *
  * <p>A posting is a key {@code (shard, term, subject 01 graph 01 qualifier)}: within a shard row and
  * a term, postings are sorted by subject. For the terms given, this iterator finds the subjects

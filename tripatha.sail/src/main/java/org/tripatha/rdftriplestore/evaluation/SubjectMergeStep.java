@@ -57,7 +57,7 @@ import org.tripatha.store.trace.Trace;
  * on gives {@code n1 × n2 × …} rows, as the nested loop would. When the subject is already bound,
  * as on the right side of an OPTIONAL evaluated per row, the patterns are joined as before.
  *
- * <p><b>Subjects only</b> (SCALE-STUDY.md O24): the lists give each cell's subject as its UTF-8
+ * <p><b>Subjects only</b> (ARCH.md 20.4.2, O24): the lists give each cell's subject as its UTF-8
  * bytes, without decoding statements, and they are compared as unsigned bytes, which is code
  * point order and so the stored order. Only matching subjects become values.
  *
@@ -69,7 +69,7 @@ import org.tripatha.store.trace.Trace;
  * bounded queue of its own: the lookups then read nearby rows, and they are slower than the slices.
  * Otherwise every slice feeds one queue and the chunks come as they are ready: emitted in order, a
  * later slice could get only its queue ahead, and at 100M triples 4 slices were 11 % faster than
- * one (SCALE-STUDY.md 4.11). The scans are all opened on the query thread, so the trace reports
+ * one (ARCH.md 20.4.2). The scans are all opened on the query thread, so the trace reports
  * them; a slice's thread reads its scans and closes them.
  *
  * <p><b>The entity index</b> (O23): when it is READY, each pattern's list is read shard by shard

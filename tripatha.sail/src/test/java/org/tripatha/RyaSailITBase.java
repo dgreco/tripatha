@@ -71,7 +71,7 @@ public abstract class RyaSailITBase extends StoreITBase {
         if (prefetchAhead != null && !prefetchAhead.isBlank()) {
             conf.setJoinPrefetchAhead(Boolean.parseBoolean(prefetchAhead.trim()));
         }
-        // query.join.countunused (SCALE-STUDY.md O26), on by default: false runs every test without counts.
+        // query.join.countunused (ARCH.md 20.2.7, O26), on by default: false runs every test without counts.
         final String countUnused = System.getProperty("tripatha.test.countUnused");
         if (countUnused != null && !countUnused.isBlank()) {
             conf.setJoinCountUnused(Boolean.parseBoolean(countUnused.trim()));

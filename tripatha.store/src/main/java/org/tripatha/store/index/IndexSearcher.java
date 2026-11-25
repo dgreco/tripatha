@@ -62,7 +62,7 @@ import org.tripatha.store.spi.Store;
  * Text queries: an {@code AND} is driven by its smallest operand and the others are checked with
  * exact-key lookups; operand sizes are estimated by reading up to {@value #PROBE_LIMIT} entries.
  * A word with more is sized by its posting count when the store's counts are complete
- * ({@link TextCounts}, SCALE-STUDY.md O6), so the rarer of two common words drives.
+ * ({@link TextCounts}, ARCH.md 20.3.8, O6), so the rarer of two common words drives.
  * Results are produced lazily, so {@code LIMIT} and {@code ASK} stop early.
  */
 public final class IndexSearcher {

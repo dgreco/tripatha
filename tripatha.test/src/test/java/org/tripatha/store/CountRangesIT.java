@@ -40,7 +40,7 @@ import org.tripatha.store.spi.WriterOptions;
 import org.tripatha.test.StoreITBase;
 
 /**
- * {@code Store.countRanges} (SCALE-STUDY.md O26) counts what a scan of each range would return,
+ * {@code Store.countRanges} (ARCH.md 20.2.7, O26) counts what a scan of each range would return,
  * on every backend: under labels (held, not held, none), graphs and a time range, for ranges with
  * many cells, none, or crossing the table's splits, and with a scan batch of two cells, which makes
  * a server resume a range more than once.

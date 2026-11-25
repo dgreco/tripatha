@@ -23,7 +23,7 @@ import org.eclipse.rdf4j.model.IRI;
 /**
  * The stored values of one datatype between two bounds, both included, for a lookup
  * {@code ?s p range}: the rows of {@code po} for {@code p} whose object has this type and whose
- * data lies between the bounds (SCALE-STUDY.md O14).
+ * data lies between the bounds (ARCH.md 20.3.5, O14).
  *
  * <p>The bounds are the data bytes the type's resolver writes, and either may be open, meaning
  * the type's first or last value. No lexical form encodes some of those: the NaN a double range

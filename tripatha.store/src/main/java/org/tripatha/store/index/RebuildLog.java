@@ -31,7 +31,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.store.spi.Store;
 
 /**
- * The statements deleted while an index is BUILDING (SCALE-STUDY.md O5). A loader rebuild reads
+ * The statements deleted while an index is BUILDING (ARCH.md 20.6.5, O5). A loader rebuild reads
  * {@code spo}, and imports the index's files hours later: a statement deleted in between would
  * come back from those files. So a writer that sees an index BUILDING records each cell of
  * {@code spo} it deletes here, and flushes the record before the delete. After its import, the

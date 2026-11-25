@@ -32,7 +32,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.store.visibility.VisibilityExpression;
 
 /**
- * The entity index's intersection with native seeks (SCALE-STUDY.md O23): in each row, the
+ * The entity index's intersection with native seeks (ARCH.md 20.4.4, O23): in each row, the
  * subjects (each cell's qualifier up to its first {@code 01}) found under every family, as
  * {@link org.tripatha.store.spi.Store#intersect} describes. One RocksDB iterator per family,
  * leapfrogged: each is sought to the largest subject the others are at, until they agree, so a

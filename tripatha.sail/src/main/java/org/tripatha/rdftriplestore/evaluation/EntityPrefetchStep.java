@@ -52,7 +52,7 @@ import org.tripatha.store.trace.Trace;
  * batch size. A window whose statements would pass {@code query.join.prefetchlimit} is halved
  * and fetched again; a single row that is still too large is left to the store.
  *
- * <p>With {@code query.join.prefetchahead} (SCALE-STUDY.md O16), from the second window on, the
+ * <p>With {@code query.join.prefetchahead} (ARCH.md 20.2.4, O16), from the second window on, the
  * next window's rows are read from the driver as soon as the current window is handed on, and
  * their keys are built and their lookups fetched on another thread while the current window is
  * joined. Only the query thread holds a batch: it takes the next window's statements when the
@@ -211,7 +211,7 @@ final class EntityPrefetchStep implements QueryEvaluationStep {
 
         /**
          * The lookups the rows will make: those that read statements into {@code keys}, those
-         * counted instead into {@code counted} ({@link CountedPattern}, SCALE-STUDY.md O26).
+         * counted instead into {@code counted} ({@link CountedPattern}, ARCH.md 20.2.7, O26).
          */
         private void keysFor(final List<BindingSet> head, final Set<LookupKey> keys, final Set<LookupKey> counted) {
             final Set<LookupKey> all = new LinkedHashSet<>();

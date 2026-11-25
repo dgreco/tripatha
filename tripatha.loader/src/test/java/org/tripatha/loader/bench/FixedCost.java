@@ -41,7 +41,7 @@ import org.tripatha.store.trace.StoreTrace;
 import org.tripatha.store.trace.TraceEvent;
 
 /**
- * The fixed cost of a query (SCALE-STUDY.md M14): where a small query's time goes, in-process,
+ * The fixed cost of a query (ARCH.md 20.2.6): where a small query's time goes, in-process,
  * on a RocksDB store through the Sail, as the endpoint runs it. For each query file, the p50 over
  * the timed runs of:
  * <ul>

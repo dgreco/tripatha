@@ -37,7 +37,7 @@ import org.tripatha.store.spi.WriterOptions;
 import org.tripatha.test.StoreITBase;
 
 /**
- * The table operations a load at 1T relies on (SCALE-STUDY.md O2): many split points added at
+ * The table operations a load at 1T relies on (ARCH.md 20.6.3, O2): many split points added at
  * once, and the size at which the backend splits a table on its own.
  */
 class TableAdminIT extends StoreITBase {

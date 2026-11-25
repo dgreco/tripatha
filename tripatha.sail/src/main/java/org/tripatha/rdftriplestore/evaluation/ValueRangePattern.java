@@ -25,7 +25,7 @@ import org.tripatha.api.domain.RyaValueRange;
 
 /**
  * A statement pattern {@code ?s p ?o} whose object a comparison filter bounds, read as ranges of
- * values (SCALE-STUDY.md O14): one range of {@code po} per datatype of {@code p}'s objects,
+ * values (ARCH.md 20.3.5, O14): one range of {@code po} per datatype of {@code p}'s objects,
  * instead of all of {@code p}'s statements. Built by {@link ValueRangeOptimizer}.
  *
  * <p>The ranges hold every statement the filter can keep, and possibly more: the filter stays in

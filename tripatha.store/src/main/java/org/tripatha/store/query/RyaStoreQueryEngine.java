@@ -124,7 +124,7 @@ public class RyaStoreQueryEngine implements RyaQueryEngine<StoreRdfConfiguration
 
     /**
      * The statements {@code ?s p ?o} whose object is in a range of one datatype's values
-     * (SCALE-STUDY.md O14): one scan of po from {@code p 00 start} to {@code p 00 stop 00 FF},
+     * (ARCH.md 20.3.5, O14): one scan of po from {@code p 00 start} to {@code p 00 stop 00 FF},
      * keeping the rows whose object has the range's type. An open end reaches the first or last
      * row of the predicate, and the type check keeps that type's.
      */
@@ -147,7 +147,7 @@ public class RyaStoreQueryEngine implements RyaQueryEngine<StoreRdfConfiguration
 
     /**
      * The subjects of the statements {@code ?s predicate object}, in every graph and in subject
-     * order: one range of po, read without decoding the statements (SCALE-STUDY.md O24). For merge
+     * order: one range of po, read without decoding the statements (ARCH.md 20.4.2, O24). For merge
      * joins, which compare only subjects.
      *
      * <p>Each cell gives its subject's UTF-8 bytes, cut from the row between the known
@@ -195,7 +195,7 @@ public class RyaStoreQueryEngine implements RyaQueryEngine<StoreRdfConfiguration
 
     /**
      * The subjects filed under one term (a predicate and an object) in one shard of the entity
-     * index (SCALE-STUDY.md O23), in subject order, once per posting: so a subject with several
+     * index (ARCH.md 20.4.4, O23), in subject order, once per posting: so a subject with several
      * statements (graphs, labels) comes once per statement, as in a po range.
      *
      * @param shardRow the shard's row ({@code EntityIndex.shardRows})
@@ -243,7 +243,7 @@ public class RyaStoreQueryEngine implements RyaQueryEngine<StoreRdfConfiguration
 
     /**
      * The subjects every term has in each of these shards of the entity index, intersected by the
-     * store (SCALE-STUDY.md O23): one match per subject and shard, with the rows it gives. Only
+     * store (ARCH.md 20.4.4, O23): one match per subject and shard, with the rows it gives. Only
      * when {@link #intersectsEntitiesInServers} says so.
      */
     /**
@@ -339,7 +339,7 @@ public class RyaStoreQueryEngine implements RyaQueryEngine<StoreRdfConfiguration
 
     /**
      * Counts the cells of {@code ?s predicate ?o} in these value ranges, in every graph, stopping
-     * at {@code cap} (SCALE-STUDY.md O25): the cells a lookup of the ranges would read. The cells
+     * at {@code cap} (ARCH.md 20.3.6, O25): the cells a lookup of the ranges would read. The cells
      * are counted, not decoded, and the ranges share the cap.
      *
      * @return the count, or {@code cap} when the ranges hold that many cells or more
@@ -463,7 +463,7 @@ public class RyaStoreQueryEngine implements RyaQueryEngine<StoreRdfConfiguration
     }
 
     /**
-     * How many statements a lookup of each pattern would return (SCALE-STUDY.md O26): the cells of
+     * How many statements a lookup of each pattern would return (ARCH.md 20.2.7, O26): the cells of
      * its range under the configuration's labels, graph, time range and row filters, counted by the
      * store ({@link org.tripatha.store.spi.Store#countRanges}), so none is read or decoded here. The
      * patterns must resolve to one table and context, and their ranges must not overlap (no two

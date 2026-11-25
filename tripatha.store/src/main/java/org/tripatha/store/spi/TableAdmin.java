@@ -69,8 +69,8 @@ public interface TableAdmin {
 
     /**
      * Rows that divide a table into parts of similar size, sorted: its split points, or what the
-     * backend knows instead. For reading one range in slices on several threads (SCALE-STUDY.md
-     * O24). A hint only: any rows are correct, they only balance the slices better or worse.
+     * backend knows instead. For reading one range in slices on several threads (ARCH.md
+     * 20.4.2, O24). A hint only: any rows are correct, they only balance the slices better or worse.
      *
      * @param max the most rows returned, spread evenly over all of them
      * @return the rows, or none when the backend can't tell (one slice)

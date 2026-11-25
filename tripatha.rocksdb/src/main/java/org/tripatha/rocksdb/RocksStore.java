@@ -63,7 +63,7 @@ public final class RocksStore implements Store {
     /** The backend's id. */
     public static final String ID = "rocksdb";
 
-    /** A lookup costs about 8 cells read in sequence: a seek, with no round trip (SCALE-STUDY.md O22). */
+    /** A lookup costs about 8 cells read in sequence: a seek, with no round trip (ARCH.md 20.4.1, O22). */
     private static final Capabilities CAPABILITIES = new Capabilities(true, true, true, false, Integer.MAX_VALUE, 8, 4);
     private static final int DELETE_BATCH = 1000;
 
@@ -129,7 +129,7 @@ public final class RocksStore implements Store {
     }
 
     /**
-     * Native iteration over each range's keys (SCALE-STUDY.md O26, {@link RocksCount}): no cell is
+     * Native iteration over each range's keys (ARCH.md 20.2.7, O26, {@link RocksCount}): no cell is
      * built, and no value read without a time range. A spec with row or qualifier filters is
      * counted by scanning.
      */

@@ -38,7 +38,7 @@ import org.tripatha.store.spi.CellScanner;
 import org.tripatha.store.spi.ScanSpec;
 
 /**
- * The entity index's intersection by the region servers (SCALE-STUDY.md O23, D14): each shard row
+ * The entity index's intersection by the region servers (ARCH.md 20.4.4, O23): each shard row
  * is asked of the region holding it, page after page, through {@code tripatha.hbase.coprocessor}'s
  * {@code IntersectionEndpoint}. Up to {@link ScanSpec#threads()} pages are in flight or waiting to
  * be read, so memory stays at that many pages whatever the shards hold.

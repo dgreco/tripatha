@@ -52,7 +52,7 @@ import org.tripatha.api.RdfCloudTripleStoreConfiguration;
 
 /**
  * Replaces the constant patterns of a star with a {@link SubjectMergeJoin}, when reading their
- * subject lists in order costs less than looking each one up per row (SCALE-STUDY.md O22).
+ * subject lists in order costs less than looking each one up per row (ARCH.md 20.4.1, O22).
  *
  * <p>A star pattern is {@code ?x p o}: a plain statement pattern in the default scope, with a
  * variable subject, a constant IRI predicate and a constant object. In a chain of joins whose
@@ -63,7 +63,7 @@ import org.tripatha.api.RdfCloudTripleStoreConfiguration;
  * The merge node becomes the chain's first argument, and the other arguments follow in their
  * order: patterns left out (a whole class, say) are then looked up for the merge's rows only.
  *
- * <p><b>A pattern on its own</b> (SCALE-STUDY.md O7a): a star pattern that isn't merged with
+ * <p><b>A pattern on its own</b> (ARCH.md 20.4.3, O7a): a star pattern that isn't merged with
  * another, but is evaluated once per query, becomes a merge of one list when its {@code po} counter
  * is at least {@code query.join.mergesingle}: {@code ?x a :C} alone, under a count, a filter or a
  * {@code DISTINCT}, or as the driver of a chain whose other patterns are looked up. It is then read
@@ -100,7 +100,7 @@ public final class SubjectMergeOptimizer implements QueryOptimizer {
     /**
      * @param everyStarPattern merge every star pattern on the subject, whatever its length: the
      *        servers intersect the entity index's shards, seeking past what can't match, so a
-     *        long list costs little more than a short one (SCALE-STUDY.md O23)
+     *        long list costs little more than a short one (ARCH.md 20.4.4, O23)
      */
     public SubjectMergeOptimizer(final EvaluationStatistics statistics, final RdfCloudTripleStoreConfiguration conf,
             final boolean allowed, final boolean everyStarPattern) {

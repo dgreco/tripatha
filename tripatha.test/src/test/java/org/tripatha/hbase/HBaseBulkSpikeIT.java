@@ -63,7 +63,7 @@ import org.tripatha.test.StoreITBase;
 import org.tripatha.test.hbase.MiniHBaseSingleton;
 
 /**
- * The bulk spike for HBase (SCALE-STUDY.md M6, R10): HFiles written from this JVM in Tripatha's
+ * The bulk spike for HBase (ARCH.md 20.6.4): HFiles written from this JVM in Tripatha's
  * cell layout ({@link HBaseCodec}), bulk-loaded into live tables.
  * <ul>
  * <li><b>Labels:</b> a cell's visibility is a tag of label ordinals, which a writer resolves from

@@ -48,7 +48,7 @@ import com.google.common.primitives.Bytes;
  * Date: 7/13/12
  * Time: 8:51 AM
  *
- * @deprecated the hashed row layout ({@code tbl.hashprefix}): it doesn't spread hot keys (every row of a predicate gets the same prefix), costs 33 bytes per {@code spo} and {@code po} row, and graph sizes and merge joins refuse it (SCALE-STUDY.md 5.3, D7, O9). Stores on it keep working.
+ * @deprecated the hashed row layout ({@code tbl.hashprefix}): it doesn't spread hot keys (every row of a predicate gets the same prefix), costs 33 bytes per {@code spo} and {@code po} row, and graph sizes and merge joins refuse it (ARCH.md 20.8, O9). Stores on it keep working.
  */
 @Deprecated
 public class WholeRowHashedTripleResolver implements TripleRowResolver {

@@ -43,7 +43,7 @@ import org.tripatha.api.domain.RyaType;
 import org.tripatha.store.RyaStoreDAO;
 import org.tripatha.store.StoreRdfConfiguration;
 
-/** Class and predicate sizes from the counters (SCALE-STUDY.md O8), against exact counts. */
+/** Class and predicate sizes from the counters (ARCH.md 20.3.9, O8), against exact counts. */
 public class ApproxCountIT extends RyaSailITBase {
     private static final String PREFIX = "PREFIX stats: <urn:tripatha:stats#>\n";
     private static final String TYPE = RDF.TYPE.stringValue();

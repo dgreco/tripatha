@@ -47,8 +47,8 @@ import org.tripatha.store.trace.StoreTrace;
 import org.tripatha.store.trace.TraceEvent;
 
 /**
- * Patterns whose object no other part of the query uses are counted, not read (SCALE-STUDY.md
- * O26), and give the rows they would have given: every query here runs with
+ * Patterns whose object no other part of the query uses are counted, not read (ARCH.md
+ * 20.2.7, O26), and give the rows they would have given: every query here runs with
  * {@code query.join.countunused} on and off, with and without the label A, and those that count
  * say so in their trace.
  *

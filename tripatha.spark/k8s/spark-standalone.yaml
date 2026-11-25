@@ -23,7 +23,7 @@
 #   WORKERS       one worker per node
 #   WORKER_CORES, WORKER_MEMORY (for executors, as Spark reads it: 3500m), WORKER_POD_MEMORY (the pod's), WORKER_DISK
 #   WORKER_CPU_LIMIT the pod's CPU limit, above WORKER_CORES (the task slots): an executor's JVM also runs GC,
-#                 the JIT and the shuffle's threads; 3 for 2 slots made a 100M part 15 % faster (SCALE-STUDY.md 4.28)
+#                 the JIT and the shuffle's threads; 3 for 2 slots made a 100M part 15 % faster (ARCH.md 20.6.7)
 #   AVOID_NODES   nodes that get no worker, comma-separated (kubernetes.io/hostname), or none: a node whose
 #                 disk is also a slow Ceph OSD's, since the shuffle spills to the node's own disk
 # Set every one: envsubst renders an unset variable as empty, and an empty limit makes kubectl refuse the

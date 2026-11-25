@@ -29,7 +29,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import org.tripatha.store.spi.RowMutation;
 
-/** The bulk build's runs: one cell per key in each, combined across runs when read (SCALE-STUDY.md O3). */
+/** The bulk build's runs: one cell per key in each, combined across runs when read (ARCH.md 20.6.4, O3). */
 class SpillsTest {
     @TempDir
     Path dir;

@@ -42,7 +42,7 @@ import org.tripatha.api.RdfCloudTripleStoreConfiguration;
 
 /**
  * Marks the statement patterns whose object variable no other part of the query uses
- * (SCALE-STUDY.md O26), as {@link CountedPattern}s: their lookups are counted instead of read.
+ * (ARCH.md 20.2.7, O26), as {@link CountedPattern}s: their lookups are counted instead of read.
  * Runs last, after the joins have their final shape. A pattern is marked when:
  * <ul>
  * <li>it is a plain store pattern (not inferred, indexed or read as a range) on the right of a

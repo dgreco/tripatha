@@ -72,7 +72,7 @@ import org.eclipse.rdf4j.model.Statement;
  * another's, such as {@code (s, p, ?)} and {@code (s, p, o)}; equal parts give the same range,
  * which a scan reads once. A group with no such pair is disjoint: no cell can come twice, and the
  * scan doesn't keep track of the cells it has seen, nor encode their objects for that when no key
- * binds one (SCALE-STUDY.md O17). Only groups whose keys bind different numbers of parts are
+ * binds one (ARCH.md 20.2.5, O17). Only groups whose keys bind different numbers of parts are
  * checked for prefixes.
  *
  * <p>Such a group's cells also come, for each key, from that key's own range only, so its ranges
@@ -89,7 +89,7 @@ import org.eclipse.rdf4j.model.Statement;
  * or more keys in {@code spo} (the links of an entity chain, for example) is read as one range,
  * its whole subject, instead of one range per key: its statements are neighbouring rows, so that
  * saves seeks, and the exact matching keeps the answers the same. On the warm join benchmark it
- * read about four times the cells for no gain (SCALE-STUDY.md O21); it may pay where seeks are
+ * read about four times the cells for no gain (ARCH.md 20.2.8, O21); it may pay where seeks are
  * block reads, on a cold cache.
  * If those ranges return more than {@value #SUBJECT_RANGE_CELLS} cells per subject read whole,
  * plus {@value #SUBJECT_RANGE_SLACK}, a subject with many statements is among them, and the
@@ -169,7 +169,7 @@ public final class BatchLookup {
 
     /**
      * How many statements a lookup of each key would return, counted by the store instead of read
-     * (SCALE-STUDY.md O26): for the patterns whose object is used nowhere else
+     * (ARCH.md 20.2.7, O26): for the patterns whose object is used nowhere else
      * ({@link CountedPattern}). A key is counted only when it binds its subject, leaves its object
      * free and doesn't ask for the default graph alone; the others are left out of the map, and
      * their lookups made as usual.
@@ -225,7 +225,7 @@ public final class BatchLookup {
     }
 
     /**
-     * Fetches some lookups' statements and counts others' at the same time (SCALE-STUDY.md O26):
+     * Fetches some lookups' statements and counts others' at the same time (ARCH.md 20.2.7, O26):
      * the count runs on a lookup thread, under the query's trace, while this thread reads, so a
      * window waits for the longer of the two instead of both. A store's count of its own is one
      * more round trip, and on the Accumulo test cluster one after the other made a chain of two

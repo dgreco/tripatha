@@ -31,7 +31,7 @@ import org.tripatha.store.spi.ScanSpec;
 import org.tripatha.store.spi.Store;
 
 /**
- * The text index's posting counts (SCALE-STUDY.md O6), so an {@code AND} is driven by its rarest
+ * The text index's posting counts (ARCH.md 20.3.8, O6), so an {@code AND} is driven by its rarest
  * word: one counter per word, predicate and label in the counter table {@code <prefix>textcount}
  * (row = word {@code 00} predicate, family {@value #FAMILY_NAME}, empty qualifier, the statement's
  * label), +1 for each posting written and −1 for each deleted.

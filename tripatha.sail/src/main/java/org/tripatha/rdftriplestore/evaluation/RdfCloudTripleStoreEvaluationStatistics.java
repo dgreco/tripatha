@@ -99,7 +99,7 @@ public class RdfCloudTripleStoreEvaluationStatistics<C extends RdfCloudTripleSto
 
     /**
      * Reads, together, the counter every statement pattern of the query will be estimated by
-     * (SCALE-STUDY.md M14): one round trip, where the estimates would make one each (a counter
+     * (ARCH.md 20.2.6): one round trip, where the estimates would make one each (a counter
      * read cost 0.4 to 0.65 ms on the Accumulo test cluster, and planning half of a small query's
      * time). Run before the optimizers that estimate. A read it doesn't foresee is made when it
      * is asked for; {@code query.stats.prefetch=false} turns this off.

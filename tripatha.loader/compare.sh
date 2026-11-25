@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 # Compares Tripatha's endpoint on RocksDB with QLever and Oxigraph on a standard benchmark, WatDiv
-# (SCALE-STUDY.md M11). See tripatha.loader/README.md for the installation on macOS and Linux.
+# (ARCH.md 20.1). See tripatha.loader/README.md for the installation on macOS and Linux.
 #
 #   tripatha.loader/compare.sh [--check] [--build] [--scale 100] [--per-template 5] [--engines tripatha,qlever,oxigraph]
 #                              [--only a,b] [--warmup 3] [--runs 10] [--timeout 120] [--out DIR]

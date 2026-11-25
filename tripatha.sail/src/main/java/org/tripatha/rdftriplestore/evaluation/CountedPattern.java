@@ -20,8 +20,8 @@ import org.eclipse.rdf4j.query.algebra.StatementPattern;
 import org.eclipse.rdf4j.query.algebra.Var;
 
 /**
- * A statement pattern whose object variable is used nowhere else in its query (SCALE-STUDY.md
- * O26), such as {@code ?f} in {@code SELECT ?p WHERE { ?p a :Person ; :knows ?f }}: the pattern
+ * A statement pattern whose object variable is used nowhere else in its query (ARCH.md
+ * 20.2.7, O26), such as {@code ?f} in {@code SELECT ?p WHERE { ?p a :Person ; :knows ?f }}: the pattern
  * only decides how many times each row comes back. So its lookups ask the store how many
  * statements match instead of reading them, and each row is repeated that many times
  * ({@link CountedPatternStep}). {@link CountedPatternOptimizer} marks them; anything else treats

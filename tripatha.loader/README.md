@@ -2,8 +2,8 @@
 
 Two tools in this module measure Tripatha's query performance, on a laptop and without a cluster:
 
-- **The join benchmark** (`bench.sh`, `JoinBench`) runs a fixed suite of 29 queries over a generated store of 10M triples, in-process, on RocksDB, Accumulo or HBase. It was written to measure Tripatha's own optimizations ([SCALE-STUDY.md](../SCALE-STUDY.md), M8), so it is not used to compare Tripatha with other engines.
-- **The engine comparison** (`compare.sh`, `CompareBench`) runs a standard benchmark, [WatDiv](https://dsg.uwaterloo.ca/watdiv/) (the Waterloo SPARQL Diversity Test Suite), against Tripatha's SPARQL endpoint, as its native executable with RocksDB inside, and against two other open-source engines loaded with the same data, one after the other, over HTTP (SCALE-STUDY.md, M11):
+- **The join benchmark** (`bench.sh`, `JoinBench`) runs a fixed suite of 29 queries over a generated store of 10M triples, in-process, on RocksDB, Accumulo or HBase. It was written to measure Tripatha's own optimizations ([ARCH.md section 20](../ARCH.md#20-speed-and-scale-the-optimizations)), so it is not used to compare Tripatha with other engines.
+- **The engine comparison** (`compare.sh`, `CompareBench`) runs a standard benchmark, [WatDiv](https://dsg.uwaterloo.ca/watdiv/) (the Waterloo SPARQL Diversity Test Suite), against Tripatha's SPARQL endpoint, as its native executable with RocksDB inside, and against two other open-source engines loaded with the same data, one after the other, over HTTP (ARCH.md 20.1):
   - [QLever](https://github.com/ad-freiburg/qlever) (Apache 2.0), a fast single-machine engine;
   - [Oxigraph](https://github.com/oxigraph/oxigraph) (MIT or Apache 2.0), an embedded store that, like Tripatha here, stores its data in RocksDB.
 
@@ -143,7 +143,7 @@ WatDiv is the work of G. Aluç, O. Hartig, M. T. Özsu and K. Daudjee. When repo
 
 ## Measuring on a cluster
 
-The cluster measurements of [SCALE-STUDY.md](../SCALE-STUDY.md) (M1 to M4, M7) run the same tools against a store loaded on the cluster. Run `bench.sh` with the loader's connection options and it reads that store instead of a test cluster: it checks that the store holds the benchmark's dataset, and never loads or deletes anything. It needs this repository, JDK 25 and Maven on a machine that reaches the cluster's ZooKeeper and tablet servers, the same access the loader needs.
+The cluster measurements behind [ARCH.md section 20](../ARCH.md#20-speed-and-scale-the-optimizations) (bytes on disk, the load's rates, one client's scan rates, the query suite, maintenance) run the same tools against a store loaded on the cluster. Run `bench.sh` with the loader's connection options and it reads that store instead of a test cluster: it checks that the store holds the benchmark's dataset, and never loads or deletes anything. It needs this repository, JDK 25 and Maven on a machine that reaches the cluster's ZooKeeper and tablet servers, the same access the loader needs.
 
 The benchmark's dataset is the loader's generator with `--text-index --geo-index`, plus `--entity-index` if you want to measure stars in the servers (O23). Load it with exactly those options, the size and a prefix of your own. At 500M triples on Accumulo, with the Spark build ([tripatha.spark/README.md](../tripatha.spark/README.md)):
 
@@ -152,21 +152,21 @@ P=accumulo-client.properties          # the loader's connection file; the passwo
 DS="--table-prefix b500m_ --triples 500M --text-index --geo-index --entity-index"   # the loader's and the Spark job's
 B="--accumulo-properties $P --table-prefix b500m_ --triples 500M --entity-index"     # bench.sh's (it adds both indexes itself)
 
-# 0. The cluster check, then the load (M2's bulk figure: the job prints its write and import times)
+# 0. The cluster check, then the load (the bulk build's rate: the job prints its write and import times)
 spark-submit ... tripatha.spark-1.0.0-SNAPSHOT-job.jar smoke --table-prefix b500m_ --accumulo-properties ... --work-dir s3a://...
 tripatha.loader/run.sh prepare --accumulo-properties $P $DS
 spark-submit ... tripatha.spark-1.0.0-SNAPSHOT-job.jar generate --accumulo-properties ... $DS --work-dir s3a://...
 
-# 1. M1, bytes on disk per table: once Accumulo's monitor shows no compactions running or queued
+# 1. Bytes on disk per table: once Accumulo's monitor shows no compactions running or queued
 tripatha.loader/bench.sh $B --load-only
 
-# 2. M4, one client's scan rates: run it first right after the tablet servers restart (a cold cache), then again (warm)
+# 2. One client's scan rates: run it first right after the tablet servers restart (a cold cache), then again (warm)
 tripatha.loader/bench.sh $B --scan-rates
 
-# 3. M3, the query suite: latencies, CPU, and the scans and cells of each query from the trace. A short first pass:
+# 3. The query suite: latencies, CPU, and the scans and cells of each query from the trace. A short first pass:
 tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600
 #    then settings as variants of one run, on the queries whose lookups they decide. `default:` is the store's defaults
-#    (on Accumulo 16 lookup threads and fetching ahead since O16's cluster figures, SCALE-STUDY.md 4.29)
+#    (on Accumulo 16 lookup threads and fetching ahead since O16's cluster figures, ARCH.md 20.2.4)
 tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600 --only star-in,star-optional,chain,star-unused,chain-unused \
   --variant default: --variant old:query.join.lookupthreads=1,query.join.prefetchahead=false \
   --variant noahead:query.join.prefetchahead=false --variant subjects:query.join.subjectranges=true
@@ -186,6 +186,6 @@ tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600 --only star-in,sta
 - **What to send back:** the Markdown reports in `tripatha.loader/target/bench` (`--out` names another directory), the Spark job's output, and the cluster's shape: tablet servers, their cores, memory and disks, and where Accumulo stores its files.
 - **The suite's results grow with the store:** `star-in` returns 1,208 rows at 1M triples, 2,897 at 3M and 7,281 at 10M, about 1 s on the Accumulo test cluster. At 500M expect results around 50 times larger. So the first pass runs each query 4 times, with 10 minutes each at most, and a report shows a timeout as a failed run. The default settings (`--warmup 3 --runs 10`, 2 minutes) are for the 10M store.
 - **Cold and warm:** the scan rates draw new entities for every measurement, but the servers' block caches and the S3 store keep what earlier runs read. The first run after the tablet servers restart is the cold one.
-- **The write path** (M2's other half): `run.sh load` of a slice into a prefix of its own, say `--triples 10M --threads 16`, gives triples per second through Accumulo's write path. Run it on one, then several machines with `--part K --parts N`, and watch the compaction backlog.
-- **Maintenance** (M7, at this size): through the endpoint, `DROP GRAPH` of a small and of a large graph and `stats:approxSize`; with the loader, `rebuild` of an index under a prefix of its own.
+- **The write path** (the load's other rate): `run.sh load` of a slice into a prefix of its own, say `--triples 10M --threads 16`, gives triples per second through Accumulo's write path. Run it on one, then several machines with `--part K --parts N`, and watch the compaction backlog.
+- **Maintenance,** at this size: through the endpoint, `DROP GRAPH` of a small and of a large graph and `stats:approxSize`; with the loader, `rebuild` of an index under a prefix of its own.
 - **HBase and RocksDB** work the same way: `--hbase-properties FILE` or `--rocksdb-path DIR` instead of `--accumulo-properties`.

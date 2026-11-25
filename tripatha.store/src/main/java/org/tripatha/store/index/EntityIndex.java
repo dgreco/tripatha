@@ -31,7 +31,7 @@ import com.google.common.hash.Hashing;
 import com.google.common.primitives.Bytes;
 
 /**
- * The entity index (SCALE-STUDY.md O23): every statement's subject, filed under its predicate
+ * The entity index (ARCH.md 20.4.4, O23): every statement's subject, filed under its predicate
  * and object in one of a fixed number of shards, so that a star's constant patterns
  * ({@code ?x p1 o1 . ?x p2 o2}) can be intersected shard by shard, and in the servers.
  *
