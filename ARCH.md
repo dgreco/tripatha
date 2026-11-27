@@ -2100,7 +2100,7 @@ Each optimization has a short tag, such as `O26`, by which the code, the commit 
 | 20.6.9 | The Spark build's counters added up across calls without objects | O32 | [18.7](#187-the-spark-build) |
 | 20.6.10 | The DAO's counter sums keyed by bytes | O35 | [9.3](#93-counters-are-summed-before-they-are-written) |
 | **20.7** | **10^12 triples: the work goes to the servers** (a summary across the entries) | | |
-| **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O31, O34 | |
+| **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O31, O34, O36 | |
 
 ### 20.1 Words, measurements, and where Tripatha stands
 
@@ -2455,6 +2455,8 @@ A selective condition now drives its star: `class-value` reads the results above
 **A fixed cap of 10,000** was used until 2026-11-18. At 100M, `class-value-int`'s range held tens of thousands of cells, passed it, and lost its plan: 510 ms against 224 with the relative cap. At 10M the relative cap also gave `class-value-mid` (`hasResult > 40`) its range plan, 39 % faster on RocksDB and 12 % on Accumulo.
 
 **Measured:** `class-value-wide` is back within 1 to 6 % of the plan without ranges, and the selective stars keep their gains. A condition most values pass pays 1 to 7.5 % for the longer count.
+
+**At scale:** the cap of a million cells misplans `class-value-mid` from 500M on, and a count that reaches it streams a million cells to the client. Histograms kept with the counters are designed for that, not built (O36, 20.8).
 
 **At 10^12** a ceiling of a million cells is too few for ranges of billions (20.8).
 
@@ -2985,12 +2987,58 @@ At 10^12 what must not happen is a client reading billions of cells to keep a fe
   - held compactions in the tools (O33), done by hand so far;
   - snappy instead of gz for a store's files (O34): files written 3 to 4 times faster, 47 to 76 % larger. gz is 6 to 12 % of the reduce stage's CPU, and every compaction pays it again. The user keeps gz for now.
 
+**Designed, not built:**
+- **Value-range estimates from histograms** (O36, designed on 2026-11-27). O25 (20.3.6) counts a range's cells to decide whether it drives its join. At 10^12 that count is either too short or too slow.
+  - **The problem, from the generator's data** (a 10M-triple sample, its counts scaled to each size; a scratch program, not in the repository). The planner lets a range drive when it is shorter than the join's shortest other pattern. The count stops at that pattern's estimate and at most at the cap of a million cells; a range that reaches the cap is estimated as if it weren't narrowed, so it doesn't drive:
+
+    | Query | Size | Range | Shortest other | The exact count picks | The cap picks |
+    |---|---|---|---|---|---|
+    | `class-value` (`hasResult > 60`) | 1B | 92,216 | 5.6M | the range | the range |
+    | | 1T | 92.2M | 5.6B | the range | the other pattern (differs) |
+    | `class-value-mid` (`> 40`) | 500M | 1.10M | 2.8M | the range | the other pattern (differs) |
+    | | 1B, 1T | 2.2M, 2.2B | 5.6M, 5.6B | the range | the other pattern (differs) |
+    | `class-value-wide` (`> 0`) | every size | 91 % of the predicate | 23 % | the other pattern | the other pattern |
+    | `class-value-int` (`numberOfEmployees >= 100`) | 1B | 264,546 | 969,470 | the range | the range |
+    | | 1T | 265M | 969M | the range | the other pattern (differs) |
+
+    "Differs" is against the planner's own rule with an exact count, not a measured loss. That the range plan is faster was measured only at 10M: there `class-value-mid`'s range plan was 39 % faster on RocksDB and 12 % on Accumulo (20.3.6). At 500M it is the cluster's to show (below). The count is also slow: it streams the range's cells to the client, so a count that reaches the cap reads a million cells, about 7 s at one client's 150,000 cells a second (20.1; derived, not measured: `class-value-mid` and `class-value-wide` haven't run on the cluster yet).
+  - **The options weighed:**
+    - **A higher cap,** or counting in the servers (O26's `countRanges`, which needs no cells sent): the servers' count has no stop, so a range of billions is billions of keys read at planning time, and a higher cap is still a cap.
+    - **Server counts that stop at N** (an option on the counting iterator, HBase's endpoint and `RocksCount`): no streaming, but still only "at least N", and server code on three backends, with the client fallback section 20 requires.
+    - **A sample table:** 1 cell in N of the ranged predicates' `po` rows, chosen by a hash of the row so a delete finds it. No interpolation error, but its read grows with the range (a 2.2B range is 2.2M sample cells at N = 1,000).
+    - **The stores' own metadata:** split points are one per tablet (about 476M cells at 1T), and RocksDB's approximate sizes have no counterpart on Accumulo and HBase.
+    - **Histograms kept with the counters** (chosen): constant to read whatever the range's size, written by every write path, under every backend's labels.
+  - **The design:**
+    - **Cells:** in `eval`, row = predicate, family `h`, qualifier = the datatype IRI, `00`, a sortable bucket key; the statement's label, and a counter delta of +1 (−1 on delete), as the counters.
+    - **Buckets,** computed from the stored encoded data alone, so a delete recomputes the statement's bucket:
+      - numbers (int, short, long, integer, double, float): the top 16 bits of the value's sortable double bits, that is the sign, the exponent and 4 bits of mantissa, so 16 buckets per octave. NaN and the infinities get buckets of their own at the ends. Within a bucket the count is spread evenly over its values, or over its whole numbers for the integer types;
+      - `xsd:dateTime`: the UTC day.
+      - The definition gets a version (as `TextAnalyzer.VERSION`): changing it means a backfill.
+    - **Writing:** the DAO sums them per call, as the counters, and writes them from `add` and the deletes. The bulk build and the Spark build write them through the DAO's capture, summed in their files. `BulkBuild.leftOut` leaves out only the counter families, so it never drops `h`; a build has to check that in both its modes.
+    - **Reading:** in the scan that already reads the predicate's datatype markers (`DatatypeMarkers.read`, family `t` of the same row, under the query's labels), which reads family `h` too. So a ranged pattern makes no more reads than today. O27's prefetch can't take it: it runs before the value-range optimizer knows which patterns are ranged.
+    - **The estimate, in two stages:** first the histogram's estimate. If it is at most the cap, today's capped count follows: exact for a small range, and never more than the cap's cells even when the histogram is wrong. If the count then reaches the cap, the range is estimated as if it weren't narrowed, as today. Above the cap, the histogram's estimate is used.
+    - **Old stores:** an `ns` record `valueranges.histograms`, holding the definition, written by the `init()` that creates a store, as `text.counts` is (O6). A store without it keeps today's count. No version bump: older writers don't write histograms, but they only steer plans. They drift as the counters do: a statement added twice counts twice, and a graph drop doesn't adjust them.
+    - **A backfill** for existing stores: one pass over the ranged predicates' `po` rows, as `rebuild`'s sort reads `spo`. The cluster's 500M store has none, so comparing 500M with 1B needs that backfill or a reload.
+  - **Its accuracy and cost,** from the same sample:
+    - **Accuracy:** within 1 % of the exact count on `hasResult` above 60, 40, 0 and 20, `population` above its 99th percentile, `numberOfEmployees >= 100`, `price < 5` and `elevation < 0`; within 2 % with NaN and infinities in a range open above; a one-hour window of `resultTime` estimated 4.65 for its 5 values.
+    - **Point masses:** `rating` (1 to 5) is exact once integers are spread over their whole numbers; spread evenly over the bucket, `rating > 4` read 1.67 times its count.
+    - **Hard case:** dates in bursts. Half the values in one hour: day buckets put that hour at 4 % of its count. Here the second stage's count corrects it, since the estimate is below the cap. A burst whose estimate passes the cap stays about 25 times too low. Hour buckets for `xsd:dateTime` would fix it, at about 52,000 cells per predicate and label over 6 years.
+    - **Size:** 5 to 2,192 cells per predicate and label (dates: one per day of the data's span), 3,348 for seven of the generator's ranged predicates.
+    - **Write cost:** one more delta for the 14.7 % of statements whose object has one of these datatypes, summed per call. With day buckets, a block of 1,000 entities writes up to about 1,000 more `resultTime` cells: a few percent more `eval` cells per call.
+  - **What a build needs:**
+    - `ValueRangeIT` with and without histograms;
+    - a test of the histogram against exact counts, these hard cases included;
+    - `PlanningReadsIT`;
+    - the bulk build and the Spark build compared with `load` cell by cell, `h` included.
+    - **On the cluster, before building it** (nothing to build): `class-value-mid` and `class-value-wide` on the 500M store with `--variant cap10m:query.valueranges.count=10000000` against the default. That shows whether the range plan wins at 500M, which is O36's motivation, and how long a count of a million cells takes, in place of the derived 7 s.
+    - **On the cluster, after building it:** `class-value`, `-mid`, `-wide` and `-int`'s plans and planning times at 500M (after a backfill) and 1B.
+
 **Open questions, for the cluster:**
 - **HBase's defaults:** one lookup thread and no fetching ahead (20.2.4), until measured on a cluster.
 - **One range per subject on a cold cache** (20.2.8).
 - **Hash or subject-range shards for the entity index:** at 100M, while lookups missed the cache, `class-value-mid` from the index was 50 % slower than from `po` (16.6 against 10.9 s), its 560,000 matches exceeding one sorted run. Shards cut at subject boundaries would give a merge global subject order, at the cost of balance as the data grows.
 - **Two queries at 500M:** `star-in` takes about 96 s whatever its threads, and `class-2` wasn't merged (78 s, where `class-3`, with one more pattern, took 29 s). Their traces are next.
-- **Value-range estimates at 10^12:** a ceiling of a million cells is too few for ranges of billions. The store would have to estimate, by counting in the servers or from a sample.
+- **Value-range estimates at 10^12:** designed, not built (O36, below).
 - **The online write path at scale,** and maintenance (graph drops, graph sizes, an index rebuild) at 500M and 1B: not measured yet.
 
 **The 10^10 and 10^12 milestones:** the user's cluster holds 1B triples at most, so neither can run on the hardware available. The evidence for 10^12 will be:
