@@ -177,7 +177,7 @@ At 10M triples on one machine (12 cores, Spark in local mode on 10, the Accumulo
 | `generate` | 63.5 s: map 13.6, reduce 43.8, import 1.5 |
 | `files`: WatDiv sf100, 10,950,947 triples in 1.55 GB of N-Triples | 52.3 s: sample 0.7, map 14.2, reduce 28.5 |
 
-On one machine the job costs 1.25 times the loader's build. Since then, the shuffle's keys as bytes, sorted in Spark's memory pages (O30, 2026-11-27), cut the reduce tasks' CPU by about 15 %, their garbage collection by 96 % and their peak memory by a third at 10M, and the whole job's CPU by about 23 %: [ARCH.md 20.6.8](../ARCH.md#2068-the-spark-builds-sort-keys-as-bytes-sorted-in-sparks-memory-pages-o30). On a cluster both stages spread over every executor. Details in [ARCH.md section 20.6.6](../ARCH.md#2066-the-bulk-build-as-a-spark-job-o28).
+On one machine the job costs 1.25 times the loader's build. Since then, the shuffle's keys as bytes, sorted in Spark's memory pages (O30, 2026-11-27), cut the reduce tasks' CPU by about 15 %, their garbage collection by 96 % and their peak memory by a third at 10M, and the whole job's CPU by about 23 %: [ARCH.md 20.6.8](../ARCH.md#2068-the-spark-builds-sort-keys-as-bytes-sorted-in-sparks-memory-pages-o30). Adding up a task's counters without an object per delta (O32) then cut the map stage's CPU by about 12 % and its garbage collection by half: [ARCH.md 20.6.9](../ARCH.md#2069-the-spark-builds-counters-added-up-across-calls-without-objects-o32). On a cluster both stages spread over every executor. Details in [ARCH.md section 20.6.6](../ARCH.md#2066-the-bulk-build-as-a-spark-job-o28).
 
 On the user's cluster (four RK3588 nodes, 1 GbE, Accumulo on CephFS), 500M triples with every index as five `generate` parts of 100M, four workers of 2 task slots, 2026-11-23:
 
@@ -209,6 +209,6 @@ spark-submit --master 'local[8]' --class org.tripatha.spark.SparkBuild tripatha.
 - **`files`** writes every cell a DAO load of the same statements writes. It covers blank nodes across splits and across files, graphs, triple terms, a base direction, a label, a repeated statement, a bad line, `--distinct`, a write run again after a failure, and the refusal of a store that holds statements.
 - **`smoke`** passes, and drops its table.
 
-`ShuffleKeyTest` checks that the shuffle's keys sort as the cells' keys do and decode back; `FileSortTest` sorts partitions on local Spark, in memory and with spills, against a plain sort.
+`ShuffleKeyTest` checks that the shuffle's keys sort as the cells' keys do and decode back; `FileSortTest` sorts partitions on local Spark, in memory and with spills, against a plain sort; `CounterSumsTest` checks the table a task adds up its counters in.
 
 `SparkJava25SpikeTest` is the first check: Spark 4.2's tasks run Tripatha's encoding on Java 25.
