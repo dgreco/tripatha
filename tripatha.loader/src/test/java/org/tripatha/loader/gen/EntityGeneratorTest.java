@@ -51,6 +51,68 @@ class EntityGeneratorTest {
                 + s.getObject().getData() + "@" + s.getObject().getLanguage() + " " + s.getContext();
     }
 
+    /**
+     * What the join benchmark's selective suite relies on (ARCH.md 20.8, M3): a person's, a review's
+     * or a product's own statements don't depend on the dataset's size, so the same anchors give the
+     * same answers at 500M and at 1B. Only its links move, to targets picked among more entities,
+     * and their number stays the same unless two of them meet the same target (then one is
+     * dropped), which a larger dataset makes rarer. Other classes' geometries, and what an
+     * observation measures, come from a city picked among all cities, so they move too.
+     */
+    @Test
+    void anchoredEntitiesOwnStatementsDontDependOnTheDatasetSize() {
+        final String entities = config.baseIri() + "e/";
+        final Set<EntityClass> anchored = Set.of(EntityClass.PERSON, EntityClass.REVIEW, EntityClass.PRODUCT, EntityClass.CITY);
+        // The benchmark's datasets, from 1M triples (about 133,000 entities) to 1B (133M), compared for the indices each
+        // holds: the selective suite draws its anchors among the first 10M by default (500M and 1B), 100,000 locally.
+        final EntityGenerator[] all = {new EntityGenerator(GenConfig.defaults(42, 133_000)),
+            new EntityGenerator(GenConfig.defaults(42, 66_700_000)), new EntityGenerator(GenConfig.defaults(42, 133_000_000))};
+        int checked = 0;
+        int fewerLinks = 0;
+        final SplitMix64 indices = new SplitMix64(3);
+        for (int n = 0; n < 18_000; n++) {
+            final long i = n < 9_000 ? n * 11L : indices.nextLong(10_000_000);
+            final EntityGenerator[] sizes = i < 133_000 ? all : new EntityGenerator[] {all[1], all[2]};
+            if (!anchored.contains(sizes[0].classOf(i))) {
+                continue;
+            }
+            checked++;
+            final List<String> own = new ArrayList<>();
+            final Map<String, Integer> links = new HashMap<>();
+            for (final RyaStatement s : sizes[0].generate(i)) {
+                if (s.getObject().getData().startsWith(entities) && !s.getPredicate().getData().equals(RDF.TYPE.stringValue())) {
+                    links.merge(s.getPredicate().getData(), 1, Integer::sum);
+                } else {
+                    own.add(key(s));
+                }
+            }
+            for (int k = 1; k < sizes.length; k++) {
+                final List<String> ownThere = new ArrayList<>();
+                final Map<String, Integer> linksThere = new HashMap<>();
+                for (final RyaStatement s : sizes[k].generate(i)) {
+                    if (s.getObject().getData().startsWith(entities) && !s.getPredicate().getData().equals(RDF.TYPE.stringValue())) {
+                        linksThere.merge(s.getPredicate().getData(), 1, Integer::sum);
+                    } else {
+                        ownThere.add(key(s));
+                    }
+                }
+                assertEquals(own, ownThere, "entity " + i + " (" + sizes[0].classOf(i) + ") at " + sizes[k].config().entities());
+                for (final Map.Entry<String, Integer> e : linksThere.entrySet()) {
+                    final int here = links.getOrDefault(e.getKey(), 0);
+                    assertTrue(here <= e.getValue(), "entity " + i + ": a larger dataset drops no link");
+                    if (here < e.getValue()) {
+                        fewerLinks++;
+                    }
+                }
+                if (k == sizes.length - 1) {
+                    assertEquals(all[1].generate(i).size(), all[2].generate(i).size(), "entity " + i + " at 500M and 1B");
+                }
+            }
+        }
+        assertTrue(checked > 8_000, checked + " entities checked");
+        assertTrue(fewerLinks * 100 < checked, fewerLinks + " of " + checked + " with a duplicate target at the smallest size");
+    }
+
     /** With an RDF 1.2 share, the same dataset plus annotated links, and some labels with a base direction. */
     @Test
     void rdf12FractionAddsAnnotationsAndDirections() throws Exception {

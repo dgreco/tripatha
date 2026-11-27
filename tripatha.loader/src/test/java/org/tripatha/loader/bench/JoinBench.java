@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
 import org.eclipse.rdf4j.query.TupleQuery;
@@ -49,6 +50,7 @@ import org.tripatha.loader.LoaderOptions;
 import org.tripatha.loader.Prepare;
 import org.tripatha.loader.StoreCheck;
 import org.tripatha.loader.StoreFactory;
+import org.tripatha.loader.gen.EntityClass;
 import org.tripatha.loader.gen.EntityGenerator;
 import org.tripatha.loader.gen.GenConfig;
 import org.tripatha.rdftriplestore.RyaSailFactory;
@@ -175,7 +177,7 @@ public final class JoinBench {
                 repo.init();
                 try {
                     final Map<String, String> queries = new LinkedHashMap<>();
-                    for (final Query q : suite(new EntityGenerator(gen))) {
+                    for (final Query q : suites(new EntityGenerator(gen))) {
                         if (settings.only.isEmpty() || settings.only.contains(q.name)) {
                             queries.put(q.name, q.sparql);
                         }
@@ -186,7 +188,7 @@ public final class JoinBench {
                 }
                 return;
             }
-            final List<Query> suite = suite(new EntityGenerator(gen));
+            final List<Query> suite = suites(new EntityGenerator(gen));
             final Map<Variant, SailRepository> repos = new LinkedHashMap<>();
             try {
                 for (final Variant v : settings.variants) {
@@ -378,8 +380,24 @@ public final class JoinBench {
 
     // ---- the suite ----
 
-    /** A named query; the text is completed with the standard prefixes. */
-    record Query(String name, String purpose, String sparql) {
+    /**
+     * A named query; the text is completed with the standard prefixes. A selective query has a text
+     * per run ({@code perRun}, its anchors drawn for that run); {@code sparql} is then run 0's.
+     */
+    record Query(String name, String purpose, String sparql, IntFunction<String> perRun) {
+        Query(final String name, final String purpose, final String sparql) {
+            this(name, purpose, sparql, null);
+        }
+
+        /** The text of the given run, counted from the first warm-up run. */
+        String text(final int run) {
+            return perRun == null ? sparql : perRun.apply(run);
+        }
+
+        /** Whether its runs read different anchors: its rows are then the total over the timed runs. */
+        boolean varies() {
+            return perRun != null;
+        }
     }
 
     /** The suite, with constants picked from the generated data so that every query finds something. */
@@ -463,13 +481,171 @@ public final class JoinBench {
         q.add(new Query("class-value-wide", "class-value with a condition most results pass (?v > 0)",
                 "SELECT ?obs ?v WHERE { ?obs a o:Observation ; o:observedProperty <" + c.topProperty
                         + "> ; o:hasResult ?v FILTER(?v > 0) }"));
+        return withPrefixes(generator, q);
+    }
+
+    private static List<Query> withPrefixes(final EntityGenerator generator, final List<Query> q) {
         final String prefixes = "PREFIX o: <" + generator.config().ontology("") + ">\n"
                 + "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
                 + "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                 + "PREFIX text: <urn:tripatha:text#>\n"
                 + "PREFIX geo: <http://www.opengis.net/ont/geosparql#>\n"
                 + "PREFIX geof: <http://www.opengis.net/def/function/geosparql/>\n";
-        return q.stream().map(x -> new Query(x.name, x.purpose, prefixes + x.sparql)).toList();
+        return q.stream().map(x -> x.perRun == null ? new Query(x.name, x.purpose, prefixes + x.sparql)
+                : new Query(x.name, x.purpose, prefixes + x.sparql, run -> prefixes + x.perRun.apply(run))).toList();
+    }
+
+    /** The suites {@code --suite} picks: the default one, the selective one (M3), or both. */
+    private List<Query> suites(final EntityGenerator generator) {
+        final List<Query> q = new ArrayList<>();
+        if (!settings.suite.equals("selective")) {
+            q.addAll(suite(generator));
+        }
+        if (!settings.suite.equals("default")) {
+            q.addAll(selective(generator, settings.anchors, settings.anchorRange, settings.sameAnchors));
+        }
+        return q;
+    }
+
+    // ---- the selective suite ----
+
+    /**
+     * The entities the selective suite starts from are among the dataset's first {@code --anchor-range}
+     * (by default 10M, which every size from about 75M triples up holds, so 500M and 1B draw the same
+     * ones, and a cold pass reads about 1 % of them): a person's, a review's or a product's own
+     * statements don't depend on the dataset's size (EntityGeneratorTest), and their IRIs are hashes
+     * of their index, so they lie anywhere in the store's key space.
+     */
+    static final long ANCHOR_RANGE = 10_000_000;
+
+    /**
+     * The selective suite (ARCH.md 20.8, M3): queries whose answers don't grow with the store, so
+     * what grows between two sizes is the cost of reaching the same answer. Each starts from
+     * {@code k} anchors among the first {@code range} entities: persons, a person's e-mail address,
+     * or reviews, and follows only their
+     * outgoing links. Their own statements are the same at every size, and the number of their
+     * links too; a link's target changes, so the rows past a link stay about the same. Classes,
+     * value ranges, text, geo and incoming links all grow with the store, so no query here reads
+     * one, except {@code sel-class}, whose answer is constant only if the anchors drive it.
+     *
+     * <p>Each run draws its own anchors, from its index, so a run reads keys no earlier run read
+     * (a cold read of each, as far as the store's caches go); {@code same} reuses run 0's on every
+     * run (warm). The same run index, number of anchors and range draw the same anchors at every
+     * size that holds the range.
+     */
+    private static List<Query> selective(final EntityGenerator generator, final int k, final long range, final boolean same) {
+        final Anchors a = new Anchors(generator, k, range);
+        final GenConfig c = generator.config();
+        final String email = c.ontology("email");
+        final String knows = c.ontology("knows");
+        final String worksFor = c.ontology("worksFor");
+        final String nationality = c.ontology("nationality");
+        final java.util.function.Predicate<List<RyaStatement>> any = st -> true;
+        final java.util.function.Predicate<List<RyaStatement>> hasEmail = st -> Anchors.has(st, email);
+        final java.util.function.Predicate<List<RyaStatement>> hasFriend = st -> Anchors.has(st, knows);
+        final java.util.function.Predicate<List<RyaStatement>> hasEmailAndEmployer = st -> Anchors.has(st, email)
+                && Anchors.has(st, worksFor);
+        // The most common nationality among the anchors' persons: its list is long, and must not drive.
+        final String country = a.topObject(nationality);
+        final List<Query> q = new ArrayList<>();
+        q.add(a.query("sel-lookup", "anchored persons, every statement: one range each", same,
+                run -> "SELECT ?s ?p ?o WHERE { VALUES ?s { " + a.iris(run, "lookup", EntityClass.PERSON, any) + " } ?s ?p ?o }"));
+        q.add(a.query("sel-email", "persons by their e-mail address: one value each in po", same,
+                run -> "SELECT ?p WHERE { VALUES ?e { " + a.values(run, "email", EntityClass.PERSON, hasEmail, email)
+                        + " } ?p o:email ?e }"));
+        q.add(a.query("sel-star", "anchored persons' names and optional birth date (entity prefetch)", same,
+                run -> "SELECT ?p ?n ?f ?b WHERE { VALUES ?p { " + a.iris(run, "star", EntityClass.PERSON, any)
+                        + " } ?p rdfs:label ?n ; o:familyName ?f OPTIONAL { ?p o:birthDate ?b } }"));
+        q.add(a.query("sel-friends", "one outgoing hop, then the target's label", same,
+                run -> "SELECT ?p ?f ?n WHERE { VALUES ?p { " + a.iris(run, "friends", EntityClass.PERSON, hasFriend)
+                        + " } ?p o:knows ?f . ?f rdfs:label ?n }"));
+        q.add(a.query("sel-chain", "two outgoing hops from reviews: product, manufacturer, its label", same,
+                run -> "SELECT ?r ?x ?m ?l WHERE { VALUES ?r { " + a.iris(run, "chain", EntityClass.REVIEW, any)
+                        + " } ?r o:reviewOf ?x . ?x o:manufacturer ?m . ?m rdfs:label ?l }"));
+        q.add(a.query("sel-email-employer", "a person by e-mail address, then the employer's label", same,
+                run -> "SELECT ?p ?org ?l WHERE { VALUES ?e { " + a.values(run, "employer", EntityClass.PERSON,
+                        hasEmailAndEmployer, email) + " } ?p o:email ?e ; o:worksFor ?org . ?org rdfs:label ?l }"));
+        q.add(a.query("sel-unused", "anchored persons' labels, their friends counted, not read (O26)", same,
+                run -> "SELECT ?p ?n WHERE { VALUES ?p { " + a.iris(run, "unused", EntityClass.PERSON, hasFriend)
+                        + " } ?p rdfs:label ?n ; o:knows ?f }"));
+        q.add(a.query("sel-class", "anchored persons of the most common nationality: the class and country lists must not drive",
+                same, run -> "SELECT ?p WHERE { VALUES ?p { " + a.iris(run, "class", EntityClass.PERSON, any)
+                        + " } ?p a o:Person ; o:nationality <" + country + "> }"));
+        return withPrefixes(generator, q);
+    }
+
+    /** The selective suite's anchors: {@code k} distinct entities per run and query, drawn from (seed, run, query). */
+    private static final class Anchors {
+        private final EntityGenerator generator;
+        private final int k;
+        private final long range;
+        private final Map<String, List<Long>> drawn = new HashMap<>();
+
+        Anchors(final EntityGenerator generator, final int k, final long range) {
+            this.generator = generator;
+            this.k = k;
+            this.range = Math.min(range, generator.config().entities());
+        }
+
+        Query query(final String name, final String purpose, final boolean same, final IntFunction<String> text) {
+            final IntFunction<String> perRun = same ? run -> text.apply(0) : text;
+            return new Query(name, purpose, perRun.apply(0), perRun);
+        }
+
+        static boolean has(final List<RyaStatement> statements, final String predicate) {
+            return statements.stream().anyMatch(st -> st.getPredicate().getData().equals(predicate));
+        }
+
+        /** The run's anchors for this query: entities of the class whose statements pass the test. */
+        List<Long> entities(final int run, final String salt, final EntityClass c,
+                final java.util.function.Predicate<List<RyaStatement>> wanted) {
+            return drawn.computeIfAbsent(run + "/" + salt, key -> {
+                // The number of anchors is in the seed too: a pass with 1 anchor doesn't reread the first of a pass with 100.
+                final long seed = org.tripatha.loader.gen.SplitMix64.mix64(generator.config().seed() ^ salt.hashCode() * 0x9E3779B97F4A7C15L
+                        ^ (run + 1L) * 0xC2B2AE3D27D4EB4FL ^ (long) k * 0x165667B19E3779F9L);
+                final java.util.LinkedHashSet<Long> out = new java.util.LinkedHashSet<>();
+                for (long attempt = 0; out.size() < k; attempt++) {
+                    if (attempt > 1_000L * k + 10_000) {
+                        throw new IllegalStateException("the dataset has too few " + c + " entities for " + k + " anchors");
+                    }
+                    final long e = Long.remainderUnsigned(org.tripatha.loader.gen.SplitMix64.mix64(seed + attempt), range);
+                    if (generator.classOf(e) == c && !out.contains(e) && wanted.test(generator.generate(e))) {
+                        out.add(e);
+                    }
+                }
+                return List.copyOf(out);
+            });
+        }
+
+        String iris(final int run, final String salt, final EntityClass c, final java.util.function.Predicate<List<RyaStatement>> wanted) {
+            return entities(run, salt, c, wanted).stream().map(e -> "<" + generator.config().entity(e) + ">")
+                    .collect(Collectors.joining(" "));
+        }
+
+        /** The anchors' values of a predicate, as literals (one per anchor: its first). */
+        String values(final int run, final String salt, final EntityClass c, final java.util.function.Predicate<List<RyaStatement>> wanted,
+                final String predicate) {
+            return entities(run, salt, c, wanted).stream().map(e -> generator.generate(e).stream()
+                    .filter(st -> st.getPredicate().getData().equals(predicate)).findFirst().orElseThrow())
+                    .map(st -> "\"" + st.getObject().getData().replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+                    .collect(Collectors.joining(" "));
+        }
+
+        /** The most common object of a predicate among the dataset's first persons. */
+        String topObject(final String predicate) {
+            final Map<String, Integer> counts = new HashMap<>();
+            for (long e = 0; e < Math.min(range, 20_000); e++) {
+                if (generator.classOf(e) == EntityClass.PERSON) {
+                    for (final RyaStatement st : generator.generate(e)) {
+                        if (st.getPredicate().getData().equals(predicate)) {
+                            counts.merge(st.getObject().getData(), 1, Integer::sum);
+                        }
+                    }
+                }
+            }
+            return counts.entrySet().stream().max(Map.Entry.<String, Integer>comparingByValue().thenComparing(Map.Entry.comparingByKey()))
+                    .orElseThrow().getKey();
+        }
     }
 
     /** Constants for the suite, from the first entities of the dataset. */
@@ -636,23 +812,30 @@ public final class JoinBench {
         final List<Variant> variants = new ArrayList<>(repos.keySet());
         final int n = variants.size();
         final long[] rows = new long[n];
+        // Runs are numbered from the first warm-up: a selective query draws its anchors from that number,
+        // the same for every variant, so variants read the same anchors and their rows compare.
         for (int j = 0; j < n; j++) {
             for (int i = 0; i < settings.warmup; i++) {
-                rows[j] = execute(repos.get(variants.get(j)), q);
+                rows[j] = execute(repos.get(variants.get(j)), q.text(i));
             }
+        }
+        if (q.varies()) {
+            Arrays.fill(rows, 0);
         }
         final double[][] ms = new double[n][settings.runs];
         final double[][] cpu = new double[n][settings.runs];
         final double[][] jvm = new double[n][settings.runs];
         for (int i = 0; i < settings.runs; i++) {
+            final String text = q.text(settings.warmup + i);
             for (int j = 0; j < n; j++) {
                 final long c0 = THREADS.getCurrentThreadCpuTime();
                 final long p0 = OS.getProcessCpuTime();
                 final long t0 = System.nanoTime();
-                rows[j] = execute(repos.get(variants.get(j)), q);
+                final long got = execute(repos.get(variants.get(j)), text);
                 ms[j][i] = (System.nanoTime() - t0) / 1e6;
                 cpu[j][i] = (THREADS.getCurrentThreadCpuTime() - c0) / 1e6;
                 jvm[j][i] = (OS.getProcessCpuTime() - p0) / 1e6;
+                rows[j] = q.varies() ? rows[j] + got : got;
             }
         }
         final List<Result> results = new ArrayList<>(n);
@@ -663,7 +846,7 @@ public final class JoinBench {
                 final Recording recording = startRecording();
                 try {
                     for (int i = 0; i < settings.runs; i++) {
-                        execute(repo, q);
+                        execute(repo, q.text(settings.warmup + settings.runs + 1 + i));
                     }
                 } finally {
                     recording.stop();
@@ -680,9 +863,9 @@ public final class JoinBench {
         return results;
     }
 
-    private long execute(final SailRepository repo, final Query q) {
+    private long execute(final SailRepository repo, final String sparql) {
         try (RepositoryConnection conn = repo.getConnection()) {
-            final TupleQuery tq = conn.prepareTupleQuery(q.sparql);
+            final TupleQuery tq = conn.prepareTupleQuery(sparql);
             tq.setMaxExecutionTime(settings.timeoutSeconds);
             long n = 0;
             try (TupleQueryResult result = tq.evaluate()) {
@@ -701,6 +884,8 @@ public final class JoinBench {
         final AtomicLong ranges = new AtomicLong();
         final AtomicLong cells = new AtomicLong();
         final double[] storageMs = new double[1];
+        // Its own anchors, the same whether or not the profile ran.
+        final String text = q.text(settings.warmup + settings.runs);
         final long t0 = System.nanoTime();
         try (StoreTrace.Scope scope = StoreTrace.start(event -> {
             if (event instanceof TraceEvent.ScanStart s) {
@@ -713,7 +898,7 @@ public final class JoinBench {
                 }
             }
         })) {
-            execute(repo, q);
+            execute(repo, text);
         } catch (final Exception e) {
             throw new IllegalStateException(q.name + ": " + e.getMessage(), e);
         }
@@ -830,8 +1015,11 @@ public final class JoinBench {
         final StringBuilder md = new StringBuilder();
         md.append("# Join benchmark, ").append(backend).append("\n\n");
         md.append(String.format(Locale.ROOT, "%s, %,d entities (about %s triples), %d warm-up and %d timed runs per query, "
-                + "%d processors, Java %s.%s%n", LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS), gen.entities(), settings.triples,
+                + "%d processors, Java %s.%s%s%n", LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS), gen.entities(), settings.triples,
                 settings.warmup, settings.runs, Runtime.getRuntime().availableProcessors(), Runtime.version(),
+                settings.suite.equals("default") ? "" : String.format(Locale.ROOT, " Suite: %s, %d anchors among the first %,d entities, %s.",
+                        settings.suite, settings.anchors, Math.min(settings.anchorRange, gen.entities()),
+                        settings.sameAnchors ? "the same on every run" : "new on every run"),
                 settings.conf.isEmpty() ? "" : " Settings: " + settings.conf + "."));
         md.append("\nTables on disk: ").append(tableSizes).append(".\n");
         if (variants) {
@@ -883,6 +1071,13 @@ public final class JoinBench {
                 It includes the client's work on every cell returned. Concurrent scans can add up to more than the wall time, so it \
                 is capped at 100.
                 """);
+        if (results.stream().anyMatch(r -> r.query.varies())) {
+            md.append(String.format(Locale.ROOT, "- **The selective queries** (`sel-`, ARCH.md 20.8) start from %d anchor%s each, %s. "
+                    + "Their **Rows** are the total over the timed runs; the traced run (Scans, Ranges, Cells) reads anchors of its "
+                    + "own. The same --warmup and --runs draw the same anchors at every size of the dataset.%n", settings.anchors,
+                    settings.anchors == 1 ? "" : "s",
+                    settings.sameAnchors ? "the same on every run (warm)" : "drawn afresh for every run (cold)"));
+        }
         if (results.stream().anyMatch(r -> r.rowsDiffer)) {
             md.append("- **≠**: this variant returned a different number of rows than the first. That is a bug in the variant.\n");
         }
@@ -938,7 +1133,7 @@ public final class JoinBench {
     record Settings(String triples, int warmup, int runs, int timeoutSeconds, int loadThreads, boolean profile, Path out,
             Path baseline, List<String> only, Map<String, String> conf, List<Variant> variants, boolean entityIndex,
             Path writeQueries, boolean loadOnly, boolean bulk, boolean fixedCost, String prefix, List<String> store,
-            boolean scanRates, int lookups, String entityShards) {
+            boolean scanRates, int lookups, String entityShards, String suite, int anchors, long anchorRange, boolean sameAnchors) {
         /** The loader's connection options that name an existing store, instead of a test cluster. */
         static final List<String> STORE_OPTIONS = List.of("--accumulo-properties", "--hbase-properties", "--hbase-site", "--hbase-conf",
                 "--hbase-user", "--rocksdb-path", "--backend");
@@ -957,6 +1152,12 @@ public final class JoinBench {
                   --entity-index       keep the entity index too (O23): loaded with it, or built on a kept store
                   --entity-shards N    its shards (the loader's default by size otherwise), as the store was loaded
                   --only a,b           run only these queries
+                  --suite default      which queries: default, selective (answers that don't grow with the
+                                       store, for comparing two sizes: ARCH.md 20.8) or all
+                  --anchors 100        entities each selective query starts from
+                  --anchor-range 10000000  drawn among the dataset's first N entities (capped at its size): the
+                                       same N and --anchors draw the same anchors at every size that holds N
+                  --same-anchors       the same anchors on every run (warm); by default each run draws its own (cold)
                   --conf key=value     a store configuration setting, for example query.join.batchsize=100
                   --variant NAME:k=v,k=v  run every query under this variant too, alternating with the others on the
                                        same store (repeat it; the first is the reference; NAME: alone changes nothing)
@@ -964,7 +1165,7 @@ public final class JoinBench {
                   --out DIR            where reports go (default tripatha.loader/target/bench); bench.sh reads
                                        this, --baseline and BENCH_ROCKSDB_PATH from the directory it is run in
                   --load-threads 8     writer threads for the one-time load
-                  --write-queries DIR  write the suite's queries to DIR/NAME.rq and stop: no store, no runs
+                  --write-queries DIR  write the default suite's queries to DIR/NAME.rq and stop: no store, no runs
                   --load-only          load the store (or keep a loaded one) and stop: no runs
                   --bulk               build the store with the bulk build (sorted files, imported) instead of load
                   --fixed-cost         instead of the suite's timings, where each query's time goes: open, parse, plan
@@ -996,6 +1197,10 @@ public final class JoinBench {
             int lookups = 1_000;
             String prefix = "bench_";
             String entityShards = null;
+            String suite = "default";
+            int anchors = 100;
+            long anchorRange = ANCHOR_RANGE;
+            boolean sameAnchors = false;
             final List<String> store = new ArrayList<>();
             Path out = Path.of("target", "bench");
             Path baseline = null;
@@ -1029,6 +1234,10 @@ public final class JoinBench {
                     scanRates = true;
                     continue;
                 }
+                if (a.equals("--same-anchors")) {
+                    sameAnchors = true;
+                    continue;
+                }
                 if (i + 1 >= args.length) {
                     throw new IllegalArgumentException("missing value for " + a);
                 }
@@ -1054,6 +1263,14 @@ public final class JoinBench {
                     case "--lookups" -> lookups = Math.max(1, Integer.parseInt(v));
                     case "--table-prefix" -> prefix = v;
                     case "--entity-shards" -> entityShards = v;
+                    case "--suite" -> {
+                        if (!List.of("default", "selective", "all").contains(v)) {
+                            throw new IllegalArgumentException("--suite takes default, selective or all (got '" + v + "')");
+                        }
+                        suite = v;
+                    }
+                    case "--anchors" -> anchors = Math.max(1, Integer.parseInt(v));
+                    case "--anchor-range" -> anchorRange = Math.max(1, Long.parseLong(v.replace("_", "")));
                     default -> {
                         if (!STORE_OPTIONS.contains(a)) {
                             throw new IllegalArgumentException("unknown option " + a);
@@ -1074,7 +1291,8 @@ public final class JoinBench {
                         + "(--accumulo-properties, --hbase-properties or --rocksdb-path)");
             }
             return new Settings(triples, warmup, runs, timeout, loadThreads, profile, out, baseline, only, conf, List.copyOf(variants),
-                    entityIndex, writeQueries, loadOnly, bulk, fixedCost, prefix, List.copyOf(store), scanRates, lookups, entityShards);
+                    entityIndex, writeQueries, loadOnly, bulk, fixedCost, prefix, List.copyOf(store), scanRates, lookups, entityShards,
+                    suite, anchors, anchorRange, sameAnchors);
         }
 
         private static Variant variant(final String v) {
