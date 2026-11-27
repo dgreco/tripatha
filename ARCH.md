@@ -2996,7 +2996,24 @@ At 10^12 what must not happen is a client reading billions of cells to keep a fe
 **The 10^10 and 10^12 milestones:** the user's cluster holds 1B triples at most, so neither can run on the hardware available. The evidence for 10^12 will be:
 - measurements at 500M and 1B, with a time model fitted on the two;
 - 1T-shaped runs at 500M: a load with 1T's tablets per statement table (`--splits 2100`) and entity shards (`--entity-shards 5000`), which reproduces each query's fan-out over tablets and shards, though not their data per tablet;
-- selective queries whose results don't grow with the store, still to design, which make the growth from 500M to 1B measurable.
+- **the selective suite** (M3; `bench.sh --suite selective`, `JoinBench.selective`), whose answers don't grow with the store, so the growth of its times from 500M to 1B is the cost of reaching the same answer in a larger store.
+  - **Why it's needed:** the default suite's constants are popular entities, classes, value ranges, words and boxes, and its answers grow with the store. Each of those grows with the generator's data by design, and so do incoming links: a popular entity gets more of them as linkers are added.
+  - **What stays constant:** a person's, a review's or a product's own statements depend only on the seed and its index, whatever the dataset's size, and so does the number of its links; only their targets move. `EntityGeneratorTest` checks this at 1M, 500M and 1B. Other classes' geometries, and what an observation measures, come from a city picked among all cities, so they move too.
+  - **The queries:** eight, each from 100 anchors (`--anchors`) among the dataset's first 10M entities (`--anchor-range`). Every size from about 75M triples up holds them, so 500M and 1B draw the same ones, and a cold pass reads about 1 % of them. An entity's IRI is a hash of its index, so they lie anywhere in the key space. Each follows only outgoing links:
+    - a whole subject;
+    - a person by e-mail address;
+    - a star with an OPTIONAL;
+    - one and two outgoing hops;
+    - an e-mail address, then the employer;
+    - a counted pattern (O26);
+    - `sel-class`, the anchored persons of the most common nationality, whose answer is constant only if the anchors drive: if the class or country list drives, its cells grow with the store.
+  - **Cold or warm:** each run draws its own anchors from its number and the number of anchors, so it reads keys no earlier run read (cold, as far as the caches go, on a command's first pass). `--same-anchors` reuses one set on every run (warm). The same `--warmup`, `--runs` and `--anchors` draw the same anchors at every size that holds the range, and Rows are the total over the timed runs.
+  - **Checked locally,** at 1M and 10M triples on RocksDB, with `--anchor-range 100000` (which both hold) and 5 runs:
+    - **the rows:** the same where no link is followed (`sel-email` 500 and 500, `sel-star` 595 and 595, `sel-class` 60 and 60, `sel-lookup` 5,010 and 5,010), `sel-unused` 1,315 and 1,317, and within 4 % past a link;
+    - **the reads:** the same cells where no link is followed (1,009, 101, 317, 214, 121), within 5 % past one, so no query reads a class or value list at either size;
+    - **the time:** p50 0.9 to 7 times the 1M figure at 10M, but 5 runs on one loaded machine aren't a measurement (`sel-class` took 9.0 ms at 10M in one pass and 18.9 ms in the next); the cluster runs are.
+
+  The runbook is in [tripatha.loader/README.md](tripatha.loader/README.md#measuring-on-a-cluster).
 
 ---
 

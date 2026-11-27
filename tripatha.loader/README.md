@@ -170,9 +170,18 @@ tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600
 tripatha.loader/bench.sh $B --warmup 1 --runs 3 --timeout 600 --only star-in,star-optional,chain,star-unused,chain-unused \
   --variant default: --variant old:query.join.lookupthreads=1,query.join.prefetchahead=false \
   --variant noahead:query.join.prefetchahead=false --variant subjects:query.join.subjectranges=true
+
+# 4. The selective suite (ARCH.md 20.8): queries whose answers don't grow with the store, from 100 anchors each among
+#    the first 10M entities. Cold (each run its own anchors), warm (the same on every run), and 1 anchor for one entity's
+#    latency. Keep --warmup, --runs and --anchors the same at both sizes: they draw the anchors, so the two sizes answer the
+#    same queries. A cold figure is cold only on a command's first pass after the tablet servers restart: a second pass
+#    rereads its anchors.
+tripatha.loader/bench.sh $B --suite selective --warmup 2 --runs 30 --timeout 600
+tripatha.loader/bench.sh $B --suite selective --warmup 2 --runs 30 --timeout 600 --same-anchors
+tripatha.loader/bench.sh $B --suite selective --warmup 2 --runs 30 --timeout 600 --anchors 1
 ```
 
-- **Then 1B,** the cluster's ceiling: the same steps with `--triples 1B` under another prefix. Two sizes give each cost's growth with the store, from which the study extrapolates to 1T: there is no larger run.
+- **Then 1B,** the cluster's ceiling: the same steps with `--triples 1B` under another prefix. Two sizes give each cost's growth with the store, from which the study extrapolates to 1T: there is no larger run. The default suite's answers grow with the store (its constants are popular entities, classes and value ranges); the selective suite's don't, so its times compare directly: compare the two reports' Rows first (exact for `sel-email`, `sel-star` and `sel-class`; within a few rows for `sel-lookup` and `sel-unused`, which count links, since the smaller store drops a link that meets a target twice; about the same past a link), then the times, and the Cells (about the same reads, or a plan changed).
 - **1T's shapes at 500M:** a load with 1T's tablets per statement table and entity shards. It reproduces 1T's fan-out over tablets and shards per query, though not its data per tablet:
   ```bash
   DS="--table-prefix s500m_ --triples 500M --text-index --geo-index --entity-index --entity-shards 5000"
