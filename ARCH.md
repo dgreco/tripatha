@@ -651,6 +651,8 @@ A label such as `"Colosseo di Roma"@it` adds one `text` entry per distinct word.
 
 `EvalStatsMutations.CounterBatch` adds up the counter deltas of a whole `add` call in memory: one entry per distinct counter key (row, family, graph, label). It writes one cell per key, holding the sum. The combiner on the server adds cells up the same way, so writing `+3` once equals writing `+1` three times.
 
+It keys the entries by the bytes it writes, in arrays, with no object per counter (O35, [section 20.6.10](#20610-the-daos-counter-sums-keyed-by-bytes-o35)). Each DAO keeps one batch and empties it at the end of every call, so a bulk writer reuses its capacity. Texts that encode to the same bytes add to one cell, as the store would add them.
+
 The batch is written early once it holds 50,000 keys (`MAX_PENDING_COUNTERS`), so memory stays bounded. The Sail adds statements one call at a time, so this summing pays off only for bulk callers, such as the loader, that pass thousands of statements per call.
 
 **Leaving counters of 1 out.** The planner reads a missing counter as 1 ([section 11.2](#112-how-a-patterns-cardinality-is-estimated)), so a counter whose total is 1 changes no estimate. Most subject counters are such: a subject rarely has two statements with the same object (`so`) or the same predicate (`sp`).
@@ -2096,6 +2098,7 @@ Each optimization has a short tag, such as `O26`, by which the code, the commit 
 | 20.6.7 | Spark beside a small cluster: CPU limits and held compactions | O29, O33 | [tripatha.spark/README.md](tripatha.spark/README.md) |
 | 20.6.8 | The Spark build's sort: keys as bytes, sorted in Spark's memory pages | O30 | [18.7](#187-the-spark-build) |
 | 20.6.9 | The Spark build's counters added up across calls without objects | O32 | [18.7](#187-the-spark-build) |
+| 20.6.10 | The DAO's counter sums keyed by bytes | O35 | [9.3](#93-counters-are-summed-before-they-are-written) |
 | **20.7** | **10^12 triples: the work goes to the servers** (a summary across the entries) | | |
 | **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O31, O34 | |
 
@@ -2898,7 +2901,31 @@ On the user's cluster, Spark shares four nodes with Ceph, ZooKeeper and Accumulo
 
 - The map stage's CPU fell about 12 %, its garbage collection about half, and its time about a quarter; the task's counter work went from 9 % of the map stage's samples to 4 %. The reduce stage and the shuffle (92.5M records) didn't change, and the whole JVM's CPU fell by a few percent, within the noise.
 - `CounterSumsTest` checks the table against a map of keys compared by content, through growth, merges and clears, and that keys differing past their first word spread over a small table. `SparkBuildIT`'s bad-line case drops a failed call's counters.
-- **Left:** the DAO's own pass, 13 % of the map stage's samples (`CounterBatch.add` and `drain`, its keys built as strings). Making it cheaper is a change to the online write path too, so it is an item of its own.
+- **Left:** the DAO's own pass, 13 % of the map stage's samples by their innermost Tripatha method, 15 % with everything it calls (`CounterBatch.add` and `drain`, its keys built as strings). Making it cheaper is a change to the online write path too, so it is an item of its own: O35 (20.6.10).
+
+#### 20.6.10 The DAO's counter sums keyed by bytes (O35)
+
+**The problem.** Every write path sums its counters in the DAO's `CounterBatch` first ([section 9.3](#93-counters-are-summed-before-they-are-written)): the endpoint's one statement per call, the loader's blocks of 1,000 entities, the Spark build's batches of 20,000 statements. The batch built six or twelve keys per statement as records of four strings (the pair rows by string concatenation), summed them in a `HashMap` of boxed sums, and at the end grouped the cells by row in a second map, encoding each string to bytes. In the Spark build at 10M after O32, that was 15 % of the map stage's CPU samples, counting everything under the batch: most of it hashing and comparing the records, growing the map, and the policy's family check by string.
+
+**How it works** (`EvalStatsMutations.CounterBatch`):
+- **Cells as the bytes they are written with:** row, family index, graph and label, in parallel arrays in the order they first came, with an open-addressing table of indexes over them. A key is hashed eight bytes at a time, as `CounterSums` does (O32), and compared by content. Each statement encodes its object once and joins its three pair rows once (with `00`, straight into one array each), shared by its all-graphs and graph cells; adding to a pending cell then creates no key, map entry or boxed sum.
+- **Shared bytes:** the last subject, predicate, graph and label are kept encoded, and consecutive statements, an entity's, share them. The label is copied once when it changes, so a caller that reuses its array can't change a pending cell.
+- **The drain** groups the cells by row through a second small table, and the policy decides by family index; the cells-per-counter count for `SKIP_SUBJECT_ONES`, needed only with several labels, is a table of indexes too.
+- **One batch per DAO,** drained at the end of every call, so a bulk writer reuses its capacity and the endpoint's batch stays small. The cost is that a DAO keeps the capacity of its largest call until it is closed: about 6 MB for a Spark task's call of 20,000 statements (128,000 cells).
+- **The same cells:** two texts that encode to the same bytes (a lone surrogate becomes `?`) now add to one cell. The string-keyed batch kept them apart: the store added the two deltas up anyway, but under `SKIP_SUBJECT_ONES` two 1s of one counter were both left out, where the store's total was 2. `EvalStatsMutationsTest` runs random calls through it and through the batch it replaced (`ReferenceCounterBatch`, in the test sources): the same cells and sums, rows grouped one mutation each, the same size after every statement, and the same cells left out under either policy, with one label or several, early drains included. On the generator's data (60 blocks of 1,000 entities, 480,000 statements, without labels and with 30 % of the entities labelled and 10 % RDF 1.2), one batch reused across the blocks drained the same 2,433,376 cells as the old one, byte for byte. The ITs on every backend then compare the bulk build, the Spark build and `load` with one another, which all go through the new batch.
+
+**Measured:**
+- **The batch alone** (the generator's statements, one JVM, after warm-up): 1,000 → 430 ns per statement on blocks of 1,000 entities, 360 ns with the batch reused as the DAO does; one statement per call (the endpoint's case) 770 → 360 ns.
+- **The Spark build** at 10M as in 20.6.8 (alternating runs against `main`, the same 66,664,080 cells in 73 files every time; one "before" run with 4.4 times the others' context switches left out):
+
+  | | Runs | Map CPU | Map GC | Reduce CPU | Whole JVM, user CPU | `CounterBatch` in the map stage's samples |
+  |---|---|---|---|---|---|---|
+  | Before | 3 | 168–180 s | 18–20 s | 230–243 s | 428–454 s | 15.1 % |
+  | After | 4 | 153–165 s | 16–17 s | 218–267 s | 411–442 s | 5.5 % |
+
+  The map stage's CPU fell about 9 %, and its profile's samples 11 %; the reduce stage didn't change beyond the noise.
+- **A load through the DAO** (`load` into a new RocksDB store, 10M triples, text, geo and entity indexes, 10 threads, three alternating pairs): the JVM's user CPU went from 294–305 s to 281–284 s (−6 %). In a profile of each, `CounterBatch` fell from 25 % of the loader threads' samples to 10 %. The load's time moved with the machine's load (1:43 to 2:09 either way), so it isn't a measure of this.
+- **Not measured:** the endpoint's writes. Each is one statement per call, where the batch alone takes half the time (above), and each call is flushed to the store before it returns (section 9.4), which is likely the larger cost.
 
 ### 20.7 10^12 triples: the work goes to the servers
 
@@ -2955,7 +2982,6 @@ At 10^12 what must not happen is a client reading billions of cells to keep a fe
     - the reduce stage took 3 to 4 times the CPU (1,021–1,135 s against 259–318 s), most of it system time (608–700 s against about 100 s for the whole job), with 28 million involuntary context switches against 3 million. It happened in every run without tracking, also with the code unchanged and only the setting given, and went away when the setting was turned back on.
 
     The cause wasn't found: garbage collection stayed short (13 collections), and the files' writes went through the same buffering either way. That was one macOS machine with endpoint protection running; it hasn't been tried on the cluster. Tracking turned off for the shuffle's classes alone, or serializers of their own, weren't tried: the map stage they would help showed no gain;
-  - the DAO's own counter sums per write call (`CounterBatch`), 13 % of the map stage's samples at 10M after O32 (20.6.9): its keys are built as strings and hashed as records, and making them cheaper changes the online write path too;
   - held compactions in the tools (O33), done by hand so far;
   - snappy instead of gz for a store's files (O34): files written 3 to 4 times faster, 47 to 76 % larger. gz is 6 to 12 % of the reduce stage's CPU, and every compaction pays it again. The user keeps gz for now.
 

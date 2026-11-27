@@ -125,6 +125,8 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
     private TableWriter bwGraphs;
     private boolean flushEachUpdate;
     private boolean maintainStats;
+    /** The counters of the current {@link #add(Iterator)} call: empty between calls, kept for its capacity. */
+    private EvalStatsMutations.CounterBatch counterBatch;
     private RyaTableMutationsFactory mutationsFactory;
     private TableLayoutStrategy tables;
     private RyaStoreQueryEngine queryEngine;
@@ -388,7 +390,7 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
     public synchronized void add(final Iterator<RyaStatement> statements, final EvalStatsMutations.CounterPolicy policy) {
         checkWritable();
         final boolean writeEarly = policy == EvalStatsMutations.CounterPolicy.ALL;
-        final EvalStatsMutations.CounterBatch counts = maintainStats ? new EvalStatsMutations.CounterBatch() : null;
+        final EvalStatsMutations.CounterBatch counts = maintainStats ? counterBatch() : null;
         final Set<GraphMarkerKey> markers = new HashSet<>();
         final Set<DatatypeMarkers.Key> datatypes = new HashSet<>();
         Exception failure = null;
@@ -422,10 +424,14 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
         } catch (final Exception e) {
             failure = e;
         }
-        // Count what was handed to the writers, even if a later statement failed.
-        if (counts != null && counts.size() > 0) {
+        // Count what was handed to the writers, even if a later statement failed. Always drained,
+        // so the next call starts with an empty batch.
+        if (counts != null) {
             try {
-                bwEval.write(counts.drain(policy));
+                final List<RowMutation> summed = counts.drain(policy);
+                if (!summed.isEmpty()) {
+                    bwEval.write(summed);
+                }
             } catch (final Exception e) {
                 if (failure == null) {
                     failure = e;
@@ -444,6 +450,13 @@ public class RyaStoreDAO implements RyaDAO<StoreRdfConfiguration>, RyaNamespaceM
         if (failure != null) {
             throw failure instanceof RyaDAOException r ? r : new RyaDAOException(failure);
         }
+    }
+
+    private EvalStatsMutations.CounterBatch counterBatch() {
+        if (counterBatch == null) {
+            counterBatch = new EvalStatsMutations.CounterBatch();
+        }
+        return counterBatch;
     }
 
     /**
