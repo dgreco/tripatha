@@ -150,7 +150,7 @@ public final class SparkBuild {
     /** Kryo for the shuffle, and no speculative tasks (two attempts would write one file at once). */
     static SparkConf configure(final SparkConf conf) {
         conf.setIfMissing("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-        conf.registerKryoClasses(new Class<?>[] {Shuffle.Key.class, Shuffle.Value.class, Tasks.FileWritten.class, Tasks.Bytes.class,
+        conf.registerKryoClasses(new Class<?>[] {Shuffle.Value.class, Tasks.FileWritten.class, Tasks.Bytes.class,
             Smoke.Result.class, byte[].class});
         if (conf.getBoolean("spark.speculation", false)) {
             throw new IllegalArgumentException("spark.speculation must be off: two attempts of a task would write one file at once");
@@ -384,7 +384,7 @@ public final class SparkBuild {
 
         final LongAccumulator statements = sc.sc().longAccumulator("statements");
         final LongAccumulator bad = sc.sc().longAccumulator("bad lines");
-        final JavaRDD<Tuple2<Shuffle.Key, Shuffle.Value>> cells = files ? fileCells(spec, inputs, statements, bad)
+        final JavaRDD<Tuple2<byte[], Shuffle.Value>> cells = files ? fileCells(spec, inputs, statements, bad)
                 : generatedCells(spec, statements);
         final List<Tasks.FileWritten> written = writeFiles(spec, cells);
         final long t2 = System.currentTimeMillis();
@@ -406,7 +406,7 @@ public final class SparkBuild {
                         "; %,d bad lines left out", bad.value()) : "");
     }
 
-    private JavaRDD<Tuple2<Shuffle.Key, Shuffle.Value>> generatedCells(final JobSpec spec, final LongAccumulator statements) {
+    private JavaRDD<Tuple2<byte[], Shuffle.Value>> generatedCells(final JobSpec spec, final LongAccumulator statements) {
         final long blocks = (spec.last - spec.first + spec.blockSize - 1) / spec.blockSize;
         final List<Long> ids = new ArrayList<>(LongStream.range(0, blocks).boxed().toList());
         final int tasks = opts.tasks > 0 ? opts.tasks : (int) Math.max(1, Math.min(blocks, sc.defaultParallelism() * 4L));
@@ -421,7 +421,7 @@ public final class SparkBuild {
         return (JavaHadoopRDD<LongWritable, Text>) sc.hadoopFile(paths, TextInputFormat.class, LongWritable.class, Text.class, splits);
     }
 
-    private JavaRDD<Tuple2<Shuffle.Key, Shuffle.Value>> fileCells(final JobSpec spec, final List<FileStatus> inputs,
+    private JavaRDD<Tuple2<byte[], Shuffle.Value>> fileCells(final JobSpec spec, final List<FileStatus> inputs,
             final LongAccumulator statements, final LongAccumulator bad) {
         final JavaHadoopRDD<LongWritable, Text> lines = lines(inputs);
         sc.setJobDescription("read " + inputs.size() + " files");
@@ -435,13 +435,16 @@ public final class SparkBuild {
     /**
      * The shuffle: each partition sorted in Accumulo's key order, then written as one file. The
      * tasks have added up their counters already, and the writer adds up what is left: a sort
-     * alone costs less than Spark's own combining, which hashes every cell.
+     * alone costs less than Spark's own combining, which hashes every cell. The shuffle only
+     * moves the cells; each reduce task sorts its own as bytes ({@link FileSort}), which costs
+     * less than Spark's sort of a shuffle by key objects.
      */
-    private List<Tasks.FileWritten> writeFiles(final JobSpec spec, final JavaRDD<Tuple2<Shuffle.Key, Shuffle.Value>> cells) {
+    private List<Tasks.FileWritten> writeFiles(final JobSpec spec, final JavaRDD<Tuple2<byte[], Shuffle.Value>> cells) {
         sc.setJobDescription("write " + spec.layout.partitions + " files");
-        return new ArrayList<>(JavaPairRDD.fromJavaRDD(cells)
-                .repartitionAndSortWithinPartitions(new Shuffle.FilePartitioner(spec.layout.partitions), new Shuffle.Order())
-                .mapPartitionsWithIndex((i, it) -> Tasks.write(spec, i, it), true).collect());
+        final JavaPairRDD<byte[], Shuffle.Value> moved = JavaPairRDD.fromJavaRDD(cells)
+                .partitionBy(new Shuffle.FilePartitioner(spec.layout.partitions));
+        return new ArrayList<>(moved.mapPartitionsWithIndex((i, it) -> Tasks.write(spec, i, FileSort.sorted(spec.layout, i, it)), true)
+                .collect());
     }
 
     // ------------------------------------------------------------------ the plan

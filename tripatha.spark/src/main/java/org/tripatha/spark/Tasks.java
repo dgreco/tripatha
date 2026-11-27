@@ -21,6 +21,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -43,6 +44,7 @@ import org.tripatha.api.domain.RyaStatement;
 import org.tripatha.api.resolver.RyaTripleContext;
 import org.tripatha.api.resolver.triple.TripleRow;
 import org.tripatha.loader.BulkBuild;
+import org.tripatha.loader.bulk.CellKey;
 import org.tripatha.loader.gen.EntityGenerator;
 import org.tripatha.loader.gen.SplitMix64;
 import org.tripatha.store.spi.BulkImport;
@@ -70,7 +72,7 @@ final class Tasks {
     // ------------------------------------------------------------------ the generator
 
     /** The cells of the generator's blocks: one write call per block, as {@code load} and {@code build} make. */
-    static Iterator<Tuple2<Shuffle.Key, Shuffle.Value>> generated(final JobSpec spec, final Iterator<Long> blocks,
+    static Iterator<Tuple2<byte[], Shuffle.Value>> generated(final JobSpec spec, final Iterator<Long> blocks,
             final LongAccumulator statements) {
         final EntityGenerator generator = new EntityGenerator(spec.options().genConfig());
         final Iterator<List<RyaStatement>> batches = new Iterator<>() {
@@ -96,7 +98,7 @@ final class Tasks {
     // ------------------------------------------------------------------ RDF files
 
     /** The cells of one split of an N-Triples or N-Quads file. */
-    static Iterator<Tuple2<Shuffle.Key, Shuffle.Value>> fromLines(final JobSpec spec, final InputSplit split,
+    static Iterator<Tuple2<byte[], Shuffle.Value>> fromLines(final JobSpec spec, final InputSplit split,
             final Iterator<Tuple2<LongWritable, Text>> lines, final LongAccumulator statements, final LongAccumulator badLines) {
         final BadLines bad = new BadLines(spec.maxBadLines, badLines);
         return new CellIterator(spec, new LineBatches(spec, split, lines, bad), bad, statements);
@@ -145,7 +147,7 @@ final class Tasks {
     }
 
     /** The cells of distinct statements, read back from their spo cells. */
-    static Iterator<Tuple2<Shuffle.Key, Shuffle.Value>> fromSpoCells(final JobSpec spec, final Iterator<Bytes> cells,
+    static Iterator<Tuple2<byte[], Shuffle.Value>> fromSpoCells(final JobSpec spec, final Iterator<Bytes> cells,
             final LongAccumulator statements, final LongAccumulator badLines) {
         final RyaTripleContext context = RyaTripleContext.getInstance(spec.conf());
         final BadLines bad = new BadLines(spec.maxBadLines, badLines);
@@ -283,14 +285,15 @@ final class Tasks {
      * With {@code bad} (files), a batch the DAO refuses is written again one statement at a time,
      * and the statements it still refuses are bad lines; the generator's are never refused.
      */
-    private static final class CellIterator implements Iterator<Tuple2<Shuffle.Key, Shuffle.Value>>, CellMaker.Sink {
+    private static final class CellIterator implements Iterator<Tuple2<byte[], Shuffle.Value>>, CellMaker.Sink {
         private final JobSpec spec;
         private final Iterator<List<RyaStatement>> batches;
         private final BadLines bad;
         private final LongAccumulator statements;
         private final CellMaker maker;
-        private final List<Tuple2<Shuffle.Key, Shuffle.Value>> buffer = new ArrayList<>();
-        private final java.util.HashMap<Shuffle.Key, long[]> counters = new java.util.HashMap<>();
+        private final List<Tuple2<byte[], Shuffle.Value>> buffer = new ArrayList<>();
+        /** The task's counter sums, by encoded key: a {@link ByteBuffer} compares by content, an array by identity. */
+        private final java.util.HashMap<ByteBuffer, long[]> counters = new java.util.HashMap<>();
         private int pos;
         private boolean closed;
 
@@ -356,11 +359,12 @@ final class Tasks {
         private void foldCounters() {
             int kept = 0;
             for (int i = 0; i < buffer.size(); i++) {
-                final Tuple2<Shuffle.Key, Shuffle.Value> c = buffer.get(i);
+                final Tuple2<byte[], Shuffle.Value> c = buffer.get(i);
                 if (c._2().counter) {
-                    final long[] sum = counters.get(c._1());
+                    final ByteBuffer key = ByteBuffer.wrap(c._1());
+                    final long[] sum = counters.get(key);
                     if (sum == null) {
-                        counters.put(c._1(), new long[] {c._2().delta});
+                        counters.put(key, new long[] {c._2().delta});
                     } else {
                         sum[0] = Math.addExact(sum[0], c._2().delta);
                     }
@@ -372,14 +376,14 @@ final class Tasks {
         }
 
         private void drainCounters() {
-            for (final java.util.Map.Entry<Shuffle.Key, long[]> e : counters.entrySet()) {
-                buffer.add(new Tuple2<>(e.getKey(), Shuffle.Value.counter(e.getValue()[0])));
+            for (final java.util.Map.Entry<ByteBuffer, long[]> e : counters.entrySet()) {
+                buffer.add(new Tuple2<>(e.getKey().array(), Shuffle.Value.counter(e.getValue()[0])));
             }
             counters.clear();
         }
 
         @Override
-        public Tuple2<Shuffle.Key, Shuffle.Value> next() {
+        public Tuple2<byte[], Shuffle.Value> next() {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
@@ -390,7 +394,7 @@ final class Tasks {
         public void put(final String table, final byte[] row, final byte[] family, final byte[] qualifier, final byte[] visibility,
                 final long timestamp, final byte[] value) {
             final int t = spec.layout.table(table);
-            buffer.add(new Tuple2<>(new Shuffle.Key(spec.layout.partition(t, row, family, qualifier), row, family, qualifier,
+            buffer.add(new Tuple2<>(Shuffle.Key.encode(spec.layout.partition(t, row, family, qualifier), row, family, qualifier,
                     visibility), Shuffle.Value.put(timestamp, value)));
         }
 
@@ -398,7 +402,7 @@ final class Tasks {
         public void counter(final String table, final byte[] row, final byte[] family, final byte[] qualifier, final byte[] visibility,
                 final long delta) {
             final int t = spec.layout.table(table);
-            buffer.add(new Tuple2<>(new Shuffle.Key(spec.layout.partition(t, row, family, qualifier), row, family, qualifier,
+            buffer.add(new Tuple2<>(Shuffle.Key.encode(spec.layout.partition(t, row, family, qualifier), row, family, qualifier,
                     visibility), Shuffle.Value.counter(delta)));
         }
     }
@@ -434,7 +438,7 @@ final class Tasks {
      * Writes one partition's cells, combined and sorted, to its table's file; counters whose total
      * the build leaves out are left out. An empty partition writes no file.
      */
-    static Iterator<FileWritten> write(final JobSpec spec, final int partition, final Iterator<Tuple2<Shuffle.Key, Shuffle.Value>> cells) {
+    static Iterator<FileWritten> write(final JobSpec spec, final int partition, final Iterator<Tuple2<byte[], Shuffle.Value>> cells) {
         final Shuffle.Layout layout = spec.layout;
         final String table = layout.tables.get(layout.tableOf(partition));
         final String name = String.format(java.util.Locale.ROOT, "%06d", layout.fileOf(partition));
@@ -448,24 +452,26 @@ final class Tasks {
             return file[0];
         };
         // A counter's cells (one per label) decided together: whether a 1 stays out depends on the others.
-        final BulkBuild.CounterGroup<Tuple2<Shuffle.Key, Shuffle.Value>> group = spec.leftOut()
-                .group(kv -> open.get().counter(kv._1().row, kv._1().family, kv._1().qualifier, kv._1().visibility, kv._2().delta));
+        // The group holds a counter's keys until it decides, so each key is decoded into arrays of its own.
+        final BulkBuild.CounterGroup<Tuple2<CellKey, Long>> group = spec.leftOut()
+                .group(kv -> open.get().counter(kv._1().row(), kv._1().family(), kv._1().qualifier(), kv._1().visibility(), kv._2()));
         try {
             // Sorted, so the cells of one key are next to each other: added up, or the newest put kept.
-            Shuffle.Key k = null;
+            byte[] k = null;
             Shuffle.Value v = null;
             while (true) {
-                final Tuple2<Shuffle.Key, Shuffle.Value> c = cells.hasNext() ? cells.next() : null;
-                if (c != null && k != null && k.equals(c._1())) {
+                final Tuple2<byte[], Shuffle.Value> c = cells.hasNext() ? cells.next() : null;
+                if (c != null && k != null && Arrays.equals(k, c._1())) {
                     v = Shuffle.Value.combine(v, c._2());
                     continue;
                 }
                 if (k != null) {
+                    final CellKey key = Shuffle.Key.decode(k);
                     if (v.counter) {
-                        group.add(k.row, k.family, k.qualifier, v.delta, new Tuple2<>(k, v));
+                        group.add(key.row(), key.family(), key.qualifier(), v.delta, new Tuple2<>(key, v.delta));
                     } else {
                         group.flush();
-                        open.get().put(k.row, k.family, k.qualifier, k.visibility, v.timestamp, v.value);
+                        open.get().put(key.row(), key.family(), key.qualifier(), key.visibility(), v.timestamp, v.value);
                     }
                 }
                 if (c == null) {

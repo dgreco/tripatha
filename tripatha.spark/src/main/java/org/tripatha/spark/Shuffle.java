@@ -16,55 +16,155 @@
 package org.tripatha.spark;
 
 import java.io.Serializable;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 
 import org.apache.spark.Partitioner;
 
+import org.tripatha.loader.bulk.CellKey;
+
 /**
  * What Spark's shuffle moves and how it orders it: one record per cell, keyed by the partition
- * that writes it (a part of a table's tablet) and the cell's key, so each partition receives the
- * cells of one file, combined and sorted as the RFile needs them. Plain classes with no-argument
- * constructors, for Kryo: no RDF4J object crosses the shuffle.
+ * that writes it (a part of a table's tablet) and the cell's key, encoded together as one array
+ * ({@link Key}), so each partition receives the cells of one file, sorted as the RFile needs
+ * them. The values are a plain class with a no-argument constructor, for Kryo: no RDF4J object
+ * crosses the shuffle.
  */
 final class Shuffle {
     private Shuffle() {
     }
 
-    /** A cell's key without its timestamp: its partition, row, family, qualifier and label. */
-    static final class Key implements Serializable {
-        private static final long serialVersionUID = 1L;
-        int part;
-        byte[] row;
-        byte[] family;
-        byte[] qualifier;
-        byte[] visibility;
+    /**
+     * A cell's key without its timestamp, as one array whose unsigned byte order is the order the
+     * file needs (O30): the partition (4 bytes, big-endian), then the row, the family and the
+     * qualifier, each with its {@code 00} bytes written as {@code 00 FF} and closed by
+     * {@code 00 01}, then the label as it is. A field that is a prefix of another sorts first, as
+     * in Accumulo's key order, and two keys are equal exactly when their cells' keys are. So the
+     * shuffle compares one array per record, and Kryo writes one object for the key, not five.
+     */
+    static final class Key {
+        private static final byte ESCAPE = 0;
+        private static final byte ESCAPED = (byte) 0xFF;
+        private static final byte END = 1;
+        private static final VarHandle LONGS = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
-        Key() {
+        private Key() {
         }
 
-        Key(final int part, final byte[] row, final byte[] family, final byte[] qualifier, final byte[] visibility) {
-            this.part = part;
-            this.row = row;
-            this.family = family;
-            this.qualifier = qualifier;
-            this.visibility = visibility;
+        static byte[] encode(final int part, final byte[] row, final byte[] family, final byte[] qualifier, final byte[] visibility) {
+            final byte[] out = new byte[Integer.BYTES + escapedLength(row) + escapedLength(family) + escapedLength(qualifier)
+                    + visibility.length];
+            out[0] = (byte) (part >>> 24);
+            out[1] = (byte) (part >>> 16);
+            out[2] = (byte) (part >>> 8);
+            out[3] = (byte) part;
+            int at = escape(row, out, Integer.BYTES);
+            at = escape(family, out, at);
+            at = escape(qualifier, out, at);
+            System.arraycopy(visibility, 0, out, at, visibility.length);
+            return out;
         }
 
-        @Override
-        public boolean equals(final Object o) {
-            return o instanceof Key k && part == k.part && Arrays.equals(row, k.row) && Arrays.equals(family, k.family)
-                    && Arrays.equals(qualifier, k.qualifier) && Arrays.equals(visibility, k.visibility);
+        /**
+         * The bytes that begin every key of partition {@code part} whose rows begin with
+         * {@code rowPrefix}: the partition, then the row prefix escaped, without its end.
+         */
+        static byte[] prefix(final int part, final byte[] rowPrefix) {
+            final byte[] out = new byte[Integer.BYTES + escapedLength(rowPrefix) - 2];
+            out[0] = (byte) (part >>> 24);
+            out[1] = (byte) (part >>> 16);
+            out[2] = (byte) (part >>> 8);
+            out[3] = (byte) part;
+            final byte[] withEnd = new byte[escapedLength(rowPrefix)];
+            escape(rowPrefix, withEnd, 0);
+            System.arraycopy(withEnd, 0, out, Integer.BYTES, withEnd.length - 2);
+            return out;
         }
 
-        @Override
-        public int hashCode() {
-            int h = part;
-            h = 31 * h + Arrays.hashCode(row);
-            h = 31 * h + Arrays.hashCode(family);
-            h = 31 * h + Arrays.hashCode(qualifier);
-            return 31 * h + Arrays.hashCode(visibility);
+        /** The partition a key was encoded with. */
+        static int part(final byte[] key) {
+            return (key[0] & 0xFF) << 24 | (key[1] & 0xFF) << 16 | (key[2] & 0xFF) << 8 | key[3] & 0xFF;
+        }
+
+        /** The cell's key, in arrays of its own. */
+        static CellKey decode(final byte[] key) {
+            final int[] at = {Integer.BYTES};
+            final byte[] row = unescape(key, at);
+            final byte[] family = unescape(key, at);
+            final byte[] qualifier = unescape(key, at);
+            return new CellKey(row, family, qualifier, Arrays.copyOfRange(key, at[0], key.length));
+        }
+
+        private static int escapedLength(final byte[] b) {
+            int n = b.length + 2;
+            for (int z = indexOfZero(b, 0); z >= 0; z = indexOfZero(b, z + 1)) {
+                n++;
+            }
+            return n;
+        }
+
+        private static int escape(final byte[] b, final byte[] out, final int to) {
+            int at = to;
+            int from = 0;
+            for (int z = indexOfZero(b, 0); z >= 0; z = indexOfZero(b, z + 1)) {
+                System.arraycopy(b, from, out, at, z + 1 - from);
+                at += z + 1 - from;
+                out[at++] = ESCAPED;
+                from = z + 1;
+            }
+            System.arraycopy(b, from, out, at, b.length - from);
+            at += b.length - from;
+            out[at++] = ESCAPE;
+            out[at++] = END;
+            return at;
+        }
+
+        /** The field starting at {@code at[0]}, unescaped; {@code at[0]} moves past its end. */
+        private static byte[] unescape(final byte[] key, final int[] at) {
+            final int start = at[0];
+            // Every 00 of a field is followed by FF (an escape) or 01 (its end).
+            int end = indexOfZero(key, start);
+            int escapes = 0;
+            while (key[end + 1] != END) {
+                escapes++;
+                end = indexOfZero(key, end + 2);
+            }
+            final byte[] out = new byte[end - start - escapes];
+            int o = 0;
+            int from = start;
+            for (int z = indexOfZero(key, from); z < end; z = indexOfZero(key, from)) {
+                System.arraycopy(key, from, out, o, z + 1 - from);
+                o += z + 1 - from;
+                from = z + 2;
+            }
+            System.arraycopy(key, from, out, o, end - from);
+            at[0] = end + 2;
+            return out;
+        }
+
+        /**
+         * The first {@code 00} byte of {@code b} at or after {@code from}, or -1: eight bytes at a
+         * time, with the zero-byte test {@code (w - 0x01..01) & ~w & 0x80..80}. Read little-endian,
+         * its lowest set bit is the first zero byte; a false hit can only follow a real one.
+         */
+        static int indexOfZero(final byte[] b, final int from) {
+            int i = from;
+            for (; i + Long.BYTES <= b.length; i += Long.BYTES) {
+                final long w = (long) LONGS.get(b, i);
+                final long t = (w - 0x0101_0101_0101_0101L) & ~w & 0x8080_8080_8080_8080L;
+                if (t != 0) {
+                    return i + (Long.numberOfTrailingZeros(t) >>> 3);
+                }
+            }
+            for (; i < b.length; i++) {
+                if (b[i] == 0) {
+                    return i;
+                }
+            }
+            return -1;
         }
     }
 
@@ -113,29 +213,6 @@ final class Shuffle {
         }
     }
 
-    /** Accumulo's key order within a partition: bytes unsigned. */
-    static final class Order implements Comparator<Key>, Serializable {
-        private static final long serialVersionUID = 1L;
-
-        @Override
-        public int compare(final Key a, final Key b) {
-            int c = Integer.compare(a.part, b.part);
-            if (c == 0) {
-                c = Arrays.compareUnsigned(a.row, b.row);
-            }
-            if (c == 0) {
-                c = Arrays.compareUnsigned(a.family, b.family);
-            }
-            if (c == 0) {
-                c = Arrays.compareUnsigned(a.qualifier, b.qualifier);
-            }
-            if (c == 0) {
-                c = Arrays.compareUnsigned(a.visibility, b.visibility);
-            }
-            return c;
-        }
-    }
-
     /** The partition {@link Layout} gave each key. */
     static final class FilePartitioner extends Partitioner {
         private static final long serialVersionUID = 1L;
@@ -152,7 +229,7 @@ final class Shuffle {
 
         @Override
         public int getPartition(final Object key) {
-            return ((Key) key).part;
+            return Key.part((byte[]) key);
         }
 
         @Override
@@ -225,6 +302,25 @@ final class Shuffle {
             }
             final int h = 31 * Arrays.hashCode(family) + Arrays.hashCode(qualifier);
             return offsets[t] + lo * b + Math.floorMod(h, b);
+        }
+
+        /**
+         * The bytes every encoded key of a partition begins with: the partition, then the common
+         * prefix of its range's bounds, since a row in {@code (lo, hi]} begins with every byte
+         * {@code lo} and {@code hi} share. The first and last ranges of a table are open, so
+         * their keys share only the partition.
+         */
+        byte[] sharedKeyBytes(final int partition) {
+            final int t = tableOf(partition);
+            final int range = fileOf(partition) / buckets[t];
+            final byte[][] s = points[t];
+            if (range == 0 || range == s.length) {
+                return Key.prefix(partition, new byte[0]);
+            }
+            final byte[] lo = s[range - 1];
+            final byte[] hi = s[range];
+            final int common = Math.max(0, Arrays.mismatch(lo, hi));
+            return Key.prefix(partition, Arrays.copyOf(lo, common));
         }
 
         /** The table a partition belongs to. */

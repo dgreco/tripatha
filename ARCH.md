@@ -1989,12 +1989,13 @@ On RocksDB only one process opens the store, so nothing else writes during the j
 ```mermaid
 flowchart LR
     plan["driver: sample, split points,<br/>file boundaries"] --> cells["tasks: statements → the DAO's cells<br/>(empty store, nothing connects)"]
-    cells --> shuffle["shuffle: one partition per file,<br/>sorted in Accumulo's key order"]
-    shuffle --> rfiles["tasks: one RFile each,<br/>on Accumulo's volume (S3, HDFS)"]
+    cells --> shuffle["shuffle: one partition per file,<br/>keys as bytes in Accumulo's key order"]
+    shuffle --> rfiles["tasks: sort in memory pages,<br/>one RFile each, on Accumulo's volume (S3, HDFS)"]
     rfiles --> import["driver: import per table<br/>with load plans"]
 ```
 
-- **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up in the tasks and, after the sort, by each file's writer. Totals of 1 are left out by `BulkBuild.leftOut`, and only where the totals are the store's, decided per counter: a 1 stays when it isn't its counter's only cell, and when the reference data `prepare` wrote counts that counter too.
+- **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up in the tasks and, after the sort, by each file's writer.
+- **The sort** (O30, [section 20.6.8](#2068-the-spark-builds-sort-keys-as-bytes-sorted-in-sparks-memory-pages-o30)): a cell's key is one array, `Shuffle.Key`: the partition, then row, family and qualifier with `00` written as `00 FF` and closed by `00 01`, then the label, so its unsigned bytes sort in Accumulo's key order. The shuffle only moves the cells to their file's partition, and each reduce task sorts them with `FileSort`: as bytes in Spark's memory pages (`UnsafeExternalSorter`), comparing first an 8-byte prefix taken after the bytes its range's bounds share. A key outside its range stops the task. Totals of 1 are left out by `BulkBuild.leftOut`, and only where the totals are the store's, decided per counter: a 1 stays when it isn't its counter's only cell, and when the reference data `prepare` wrote counts that counter too.
 - **Files:** each table's tablets, cut further at sampled rows into files of about `--file-size` (at most the table's `table.file.max` per tablet, 15 by default). The entity index's shard rows are spread by column hash. The RFiles must be on one of Accumulo's volumes, since Accumulo imports only from those.
 - **Once each:** one timestamp per job, files named after their table and range, no speculation. Once an import starts, the files are never written again; a file that is gone was imported, and a directory that still holds Accumulo's `loadmap.json` is not imported again.
 - **Files as input:** read by line in parallel; each blank node label is prefixed with its file's id, so every split of a file agrees on it; bad lines are counted and left out up to a limit; `--distinct` drops repeats; `--visibility` labels the job's statements.
@@ -2093,8 +2094,9 @@ Each optimization has a short tag, such as `O26`, by which the code, the commit 
 | 20.6.5 | Index rebuilds as a batch job | O5 | [18.6](#186-rebuild) |
 | 20.6.6 | The bulk build as a Spark job | O28 | [18.7](#187-the-spark-build) |
 | 20.6.7 | Spark beside a small cluster: CPU limits and held compactions | O29, O33 | [tripatha.spark/README.md](tripatha.spark/README.md) |
+| 20.6.8 | The Spark build's sort: keys as bytes, sorted in Spark's memory pages | O30 | [18.7](#187-the-spark-build) |
 | **20.7** | **10^12 triples: the work goes to the servers** (a summary across the entries) | | |
-| **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O30–O32, O34 | |
+| **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O31, O32, O34 | |
 
 ### 20.1 Words, measurements, and where Tripatha stands
 
@@ -2837,7 +2839,7 @@ At 10^12 the gain is in the structure, not these ratios: one client thread makin
 **How it works** (`tripatha.spark`, [section 18.7](#187-the-spark-build)):
 - **The DAO's cells:** each task writes its statements through a DAO over a capturing, empty store with the real store's tables, which connects nowhere. So every cell is the one `load` writes, and the executors need no Accumulo access.
 - **Files fixed first:** the driver samples the input. Each table's file boundaries are its tablets' split rows, plus sample quantiles within each tablet, for files of about `--file-size`, and never more files per tablet than Accumulo compacts at.
-- **The shuffle only sorts:** each task adds up its counters across write calls, Spark sorts each partition in Accumulo's key order, and each file's writer adds up the cells of one key.
+- **The shuffle only moves:** each task adds up its counters across write calls, the shuffle sends each cell to its file's partition, each reduce task sorts its partition in Accumulo's key order (20.6.8), and each file's writer adds up the cells of one key.
 - **The files** go to one of Accumulo's own volumes, since Accumulo imports only from those, and the driver imports them with load plans. The write phase can run again and writes the same cells; once an import starts, nothing is written again.
 - **Input:** the generator, or N-Triples and N-Quads files read by line in parallel. A blank node's label is prefixed with its file's identity, so every split of a file agrees on it, and bad lines are counted and left out up to a limit.
 
@@ -2855,6 +2857,28 @@ On the user's cluster, Spark shares four nodes with Ceph, ZooKeeper and Accumulo
 - **Executors that don't spill:** a 3 GB executor gave each of its two tasks about 840 MB, while a map task of 1.56M statements held 2.4 GB of output. So every record was spilled once: 41 GB written to the local disks for a 20.6 GB shuffle. With 5 GB executors and 256 map tasks, the spills fell from 33.6 to 1.2 GB, the part took 29:59, and ZooKeeper stalled 7 times instead of 30.
 - **A CPU limit above the task slots** (O29): with a pod's limit equal to its two task slots, the workers were throttled in 78 to 87 % of the scheduler's periods while each node had 4 to 5 cores idle. The JVM's own threads (garbage collection, the compiler, the shuffle's network and compression) need CPU besides the tasks. `WORKER_CPU_LIMIT`, set to 3 apart from `WORKER_CORES` (2), took the part to 25:31 (the reduce stage −20 %).
 - **Compactions held** (O33): after the fourth import most tablets held four files, and Accumulo's default `table.compaction.major.ratio` of 3 queued about 140 major compactions. Next to the fifth part, one ZooKeeper sync took 54 s and the job's guard stopped it. With the ratio at 100 on the six large tables, the longest sync was 3.1 s; the ratio goes back afterwards, and the store compacts once, after the load. This is done by hand; the tools don't do it yet.
+
+#### 20.6.8 The Spark build's sort: keys as bytes, sorted in Spark's memory pages (O30)
+
+**The problem.** At 500M on the user's cluster, sorting took about two thirds of the reduce stage's CPU: Java's sort for objects (TimSort, which Spark's shuffle uses to sort by key) 43 % in its merge loops, and the comparisons 17 %. Each cell's key was an object holding four arrays (row, family, qualifier, label), so a reduce task held millions of small objects, and every comparison followed references to them across the heap.
+
+**How it works** (`Shuffle.Key`, `FileSort`, [section 18.7](#187-the-spark-build)):
+- **One array per key:** the partition (4 bytes), then the row, family and qualifier, each with its `00` bytes written as `00 FF` and closed by `00 01`, then the label. Its unsigned byte order is Accumulo's key order, a field that is a prefix of another sorting first, and two keys are equal exactly when their cells' keys are. The writer decodes each distinct key once, finding the `00` bytes eight at a time.
+- **The shuffle only moves cells** (`partitionBy`), and each reduce task sorts its own, as Spark SQL sorts rows: each cell is copied as bytes into Spark's memory pages, and an array of pointers, each with an 8-byte prefix of its key, is sorted. Records are compared only when their prefixes are equal. The rows of a range share the bytes its bounds share, so the prefix starts after them, where the keys of one file differ.
+- **Memory:** the pages are the task's execution memory, so the sorter spills to the local disk when they run out and merges back, as Spark's own sort does, and reports its peak to the task's metrics.
+
+**Measured** at 10M on one machine (`local[10]`, a 12 GB heap, the write phase only, the cluster's shuffle writer forced with `spark.shuffle.sort.bypassMergeThreshold=1`, `--file-size 256`: 73 files and no spills). The runs alternated on a machine whose load average went from 9 to 65, so each figure is the range over its runs, CPU summed over the stage's tasks:
+
+| | Runs | Reduce CPU | Reduce GC | Reduce stage | Whole JVM, user CPU | Largest reduce task's memory |
+|---|---|---|---|---|---|---|
+| Before | 8 | 289–368 s | 72–166 s | 45–137 s | 572–658 s | 842–917 MB |
+| One array per key, Spark's sort | 6 | 257–315 s | 64–183 s | 42–104 s | 505–582 s | 690 MB |
+| One array per key, sorted in pages | 6 | 264–306 s | 5–9 s | 43–60 s | 440–485 s | 576 MB |
+
+- **Where the gain is:** the key as one array cut the tasks' CPU by about 15 %, and sorting in pages didn't cut it further. What sorting in pages removed is the garbage collection, 96 % of it, which runs on threads of its own: the whole JVM's CPU fell about 23 % (13 % with the array alone), and the reduce stage's time no longer grew with the machine's load as much (43–60 s against 45–137 s; on a lightly loaded machine both took about 44 s).
+- **Memory and spills:** a reduce task's peak fell by about a third. At `--file-size 512` the reduce tasks spilled 1.8–1.9 GB before, 310 MB with the array, and 144 MB sorted in pages (largest task 704 MB).
+- **Cost:** the shuffle grew from 3,295 to 3,422 MB (+4 %), the escapes and terminators the keys now carry. `UnsafeExternalSorter` is an internal class of Spark whose constructor changed in 4.2.0, so upgrading Spark means checking `FileSort.sorter` again. `FileSortTest` sorts on local Spark with and without spills, and `SparkBuildIT` compares every cell with the loader's build.
+- **On the cluster:** not measured yet; the next cluster load does it. There the reduce stage was the larger one (940 s against the map's 580 s per 100M part, with every worker CPU-limited), but garbage collection was a smaller share of it (7 % of part 2's reduce time, against about 16 % here), so the gain may be smaller.
 
 ### 20.7 10^12 triples: the work goes to the servers
 
@@ -2906,7 +2930,6 @@ At 10^12 what must not happen is a client reading billions of cells to keep a fe
 - **A whole predicate in slices** (O7b): `?s :p ?o` is sorted by object, so subject boundaries don't cut it. It needs `po`'s own split points, and its statements decoded on the slice threads, since its object is returned. Built when a workload needs it.
 - **An analytics engine** (O12): no single process can stream a large share of 10^12 rows interactively. Whole-store analytics would mean Spark or Trino reading the tables, with filters and partial aggregates pushed down. The target workload doesn't need it.
 - **The Spark build's CPU,** from profiles of the 500M load:
-  - a cheaper sort (O30): about two thirds of the reduce stage's CPU, TimSort's merge loops (Java's sort for objects) 43 % and the comparisons 17 %;
   - Kryo serializers (Kryo is the library Spark turns records into bytes with) without reference tracking for the shuffle's records (O31): 17 % of the map stage's CPU and 15 % of the reduce's;
   - counters added up once per task instead of twice (O32): about 22 % of the map stage's CPU;
   - held compactions in the tools (O33), done by hand so far;
@@ -2951,6 +2974,7 @@ Breaking any of these loses data or results, or makes the store refuse to start:
 18. **Every stored statement has exactly one entity posting** when the entity index is on. Its matches are answers, not candidates: a missing posting loses rows, a stale one adds them ([section 13.7](#137-the-entity-index-stars-shard-by-shard)).
 19. **A store with the entity index has storage version 1.2.0,** so code that doesn't keep the index never writes to it.
 20. **A statement deleted during a rebuild stays out of the index.** While an index is BUILDING, each delete is recorded before it is made, and a job's finish replays the record after its import; graph drops wait for the job. A store that has had a job is at version 1.3.0, so code that records nothing never writes to it ([section 18.6](#186-rebuild)).
+21. **The Spark build's keys sort as the cells do.** A `Shuffle.Key`'s unsigned bytes must order as the cell's partition, row, family, qualifier and label, compared one after another, and every key of a partition must start with the bytes its range's bounds share. Otherwise a file's cells reach its writer out of order, and equal keys aren't combined ([section 18.7](#187-the-spark-build)).
 
 ---
 
