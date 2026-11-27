@@ -32,6 +32,19 @@ class SparkBuildOptionsTest {
         return SparkBuild.Options.parse(args, Map.of());
     }
 
+    /**
+     * Kryo for the shuffle, with Spark's own reference tracking (O31: turning it off made the
+     * reduce stage 3 to 4 times slower, ARCH.md 20.8), and speculation refused.
+     */
+    @Test
+    void sparkIsConfiguredForTheShuffle() {
+        final org.apache.spark.SparkConf conf = SparkBuild.configure(new org.apache.spark.SparkConf(false));
+        assertEquals("org.apache.spark.serializer.KryoSerializer", conf.get("spark.serializer"));
+        assertEquals(false, conf.contains("spark.kryo.referenceTracking"));
+        assertThrows(IllegalArgumentException.class,
+                () -> SparkBuild.configure(new org.apache.spark.SparkConf(false).set("spark.speculation", "true")));
+    }
+
     @Test
     void aLoaderValueThatNamesAnOptionOfTheJobStaysTheLoaders() {
         final SparkBuild.Options o = parse("files", "--table-prefix", "input", "--input", "s3a://b/in", "--work-dir", "tasks",
