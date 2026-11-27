@@ -1994,7 +1994,7 @@ flowchart LR
     rfiles --> import["driver: import per table<br/>with load plans"]
 ```
 
-- **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up in the tasks and, after the sort, by each file's writer.
+- **The same cells as `load`:** each task writes through a `RyaStoreDAO` over a `CapturingStore` of an `EmptyStore` holding the real store's tables. Counters are added up by the DAO within each write call, by the task across its calls (`CounterSums`, O32, [section 20.6.9](#2069-the-spark-builds-counters-added-up-across-calls-without-objects-o32)), and after the sort by each file's writer.
 - **The sort** (O30, [section 20.6.8](#2068-the-spark-builds-sort-keys-as-bytes-sorted-in-sparks-memory-pages-o30)): a cell's key is one array, `Shuffle.Key`: the partition, then row, family and qualifier with `00` written as `00 FF` and closed by `00 01`, then the label, so its unsigned bytes sort in Accumulo's key order. The shuffle only moves the cells to their file's partition, and each reduce task sorts them with `FileSort`: as bytes in Spark's memory pages (`UnsafeExternalSorter`), comparing first an 8-byte prefix taken after the bytes its range's bounds share. A key outside its range stops the task. Totals of 1 are left out by `BulkBuild.leftOut`, and only where the totals are the store's, decided per counter: a 1 stays when it isn't its counter's only cell, and when the reference data `prepare` wrote counts that counter too.
 - **Files:** each table's tablets, cut further at sampled rows into files of about `--file-size` (at most the table's `table.file.max` per tablet, 15 by default). The entity index's shard rows are spread by column hash. The RFiles must be on one of Accumulo's volumes, since Accumulo imports only from those.
 - **Once each:** one timestamp per job, files named after their table and range, no speculation. Once an import starts, the files are never written again; a file that is gone was imported, and a directory that still holds Accumulo's `loadmap.json` is not imported again.
@@ -2095,8 +2095,9 @@ Each optimization has a short tag, such as `O26`, by which the code, the commit 
 | 20.6.6 | The bulk build as a Spark job | O28 | [18.7](#187-the-spark-build) |
 | 20.6.7 | Spark beside a small cluster: CPU limits and held compactions | O29, O33 | [tripatha.spark/README.md](tripatha.spark/README.md) |
 | 20.6.8 | The Spark build's sort: keys as bytes, sorted in Spark's memory pages | O30 | [18.7](#187-the-spark-build) |
+| 20.6.9 | The Spark build's counters added up across calls without objects | O32 | [18.7](#187-the-spark-build) |
 | **20.7** | **10^12 triples: the work goes to the servers** (a summary across the entries) | | |
-| **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O31, O32, O34 | |
+| **20.8** | **Not done, and why** | O4, O7b, O9, O11, O12, O18, O31, O34 | |
 
 ### 20.1 Words, measurements, and where Tripatha stands
 
@@ -2880,6 +2881,25 @@ On the user's cluster, Spark shares four nodes with Ceph, ZooKeeper and Accumulo
 - **Cost:** the shuffle grew from 3,295 to 3,422 MB (+4 %), the escapes and terminators the keys now carry. `UnsafeExternalSorter` is an internal class of Spark whose constructor changed in 4.2.0, so upgrading Spark means checking `FileSort.sorter` again. `FileSortTest` sorts on local Spark with and without spills, and `SparkBuildIT` compares every cell with the loader's build.
 - **On the cluster:** not measured yet; the next cluster load does it. There the reduce stage was the larger one (940 s against the map's 580 s per 100M part, with every worker CPU-limited), but garbage collection was a smaller share of it (7 % of part 2's reduce time, against about 16 % here), so the gain may be smaller.
 
+#### 20.6.9 The Spark build's counters added up across calls without objects (O32)
+
+**The problem.** At 500M, counters took about 22 % of the map stage's CPU. A task's counter deltas are added up twice: by the DAO within each write call (`CounterBatch`, keyed by strings), and by the task across its calls, so that one task sends each counter once. The task's pass built a `Tuple2` and a `Shuffle.Value` per delta into the buffer the shuffle reads, then scanned that buffer, wrapped each key in a `ByteBuffer` (hashed one byte at a time) and built a tuple again for each sum. At 10M that pass was 9 % of the map stage's samples, and the DAO's 13 %.
+
+**Both passes are kept.** In one map task at 10M (247,000 statements), the task's pass leaves 30 % fewer counter cells for the shuffle (1.06M to 740,000: predicate counters, datatype markers and text counts, which recur across calls). Without the DAO's pass, a task would add 2.66M raw deltas, 3.45 times the cells the DAO hands over, each one escaped, allocated and hashed as bytes: so its cost stays.
+
+**How it works** (`CounterSums`, `Tasks.CellIterator`): a delta goes straight from the cell maker into the call's `CounterSums`, an open-addressing table of encoded keys and `long` sums that hashes eight bytes at a time. When the call succeeds its sums are added to the task's; when it fails they are dropped, as its cells in the buffer are. So no object is made per delta, and the buffer holds only puts until the counters are drained.
+
+**Measured** at 10M as in 20.6.8 (alternating runs against `main` with O30, two runs disturbed by the machine's load left out):
+
+| | Runs | Map CPU | Map GC | Map stage | Reduce CPU | Whole JVM, user CPU |
+|---|---|---|---|---|---|---|
+| Before | 4 | 210–230 s | 45–60 s | 38–47 s | 260–289 s | 435–500 s |
+| After | 4 | 184–205 s | 24–32 s | 26–36 s | 257–298 s | 418–473 s |
+
+- The map stage's CPU fell about 12 %, its garbage collection about half, and its time about a quarter; the task's counter work went from 9 % of the map stage's samples to 4 %. The reduce stage and the shuffle (92.5M records) didn't change, and the whole JVM's CPU fell by a few percent, within the noise.
+- `CounterSumsTest` checks the table against a map of keys compared by content, through growth, merges and clears, and that keys differing past their first word spread over a small table. `SparkBuildIT`'s bad-line case drops a failed call's counters.
+- **Left:** the DAO's own pass, 13 % of the map stage's samples (`CounterBatch.add` and `drain`, its keys built as strings). Making it cheaper is a change to the online write path too, so it is an item of its own.
+
 ### 20.7 10^12 triples: the work goes to the servers
 
 At 10^12 what must not happen is a client reading billions of cells to keep a few. So work moves to where the data is, and only what the answer needs comes back. This is a summary across the entries above:
@@ -2931,7 +2951,7 @@ At 10^12 what must not happen is a client reading billions of cells to keep a fe
 - **An analytics engine** (O12): no single process can stream a large share of 10^12 rows interactively. Whole-store analytics would mean Spark or Trino reading the tables, with filters and partial aggregates pushed down. The target workload doesn't need it.
 - **The Spark build's CPU,** from profiles of the 500M load:
   - Kryo serializers (Kryo is the library Spark turns records into bytes with) without reference tracking for the shuffle's records (O31): 17 % of the map stage's CPU and 15 % of the reduce's;
-  - counters added up once per task instead of twice (O32): about 22 % of the map stage's CPU;
+  - the DAO's own counter sums per write call (`CounterBatch`), 13 % of the map stage's samples at 10M after O32 (20.6.9): its keys are built as strings and hashed as records, and making them cheaper changes the online write path too;
   - held compactions in the tools (O33), done by hand so far;
   - snappy instead of gz for a store's files (O34): files written 3 to 4 times faster, 47 to 76 % larger. gz is 6 to 12 % of the reduce stage's CPU, and every compaction pays it again. The user keeps gz for now.
 

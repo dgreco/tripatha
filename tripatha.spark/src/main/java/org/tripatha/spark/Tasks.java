@@ -21,7 +21,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -61,8 +60,8 @@ final class Tasks {
     static final int CHUNK = 1_000;
     /**
      * The counters a task holds to add up across its write calls before handing them to the
-     * shuffle (about 150 bytes each): the DAO adds them up within a call, and the files' writer
-     * adds up what is left.
+     * shuffle (about 100 bytes each): the DAO adds them up within a call, the task across its
+     * calls (30 % fewer counter cells for one task at 10M), and the files' writer what is left.
      */
     static final int COUNTERS = 1 << 19;
 
@@ -291,9 +290,12 @@ final class Tasks {
         private final BadLines bad;
         private final LongAccumulator statements;
         private final CellMaker maker;
+        /** The puts of the calls written, until the shuffle takes them; then the counters drained. */
         private final List<Tuple2<byte[], Shuffle.Value>> buffer = new ArrayList<>();
-        /** The task's counter sums, by encoded key: a {@link ByteBuffer} compares by content, an array by identity. */
-        private final java.util.HashMap<ByteBuffer, long[]> counters = new java.util.HashMap<>();
+        /** The counter deltas of the call being written: added to the task's once the call succeeds. */
+        private final CounterSums call = new CounterSums();
+        /** The task's counter sums across its calls (O32): the shuffle gets one cell per key and drain. */
+        private final CounterSums counters = new CounterSums(COUNTERS);
         private int pos;
         private boolean closed;
 
@@ -324,7 +326,6 @@ final class Tasks {
                     continue;
                 }
                 write(batches.next());
-                foldCounters();
                 if (counters.size() >= COUNTERS) {
                     drainCounters();
                 }
@@ -332,9 +333,15 @@ final class Tasks {
             return true;
         }
 
+        /**
+         * Writes a batch as one call. A call that fails may have handed part of its cells over:
+         * its puts are taken off the buffer and its counters dropped, so only whole calls count.
+         */
         private void write(final List<RyaStatement> batch) {
             try {
                 maker.add(batch, spec.addPolicy);
+                counters.addAll(call);
+                call.clear();
                 statements.add(batch.size());
                 return;
             } catch (final RuntimeException e) {
@@ -342,43 +349,25 @@ final class Tasks {
                     throw e;
                 }
                 buffer.clear();
+                call.clear();
             }
             for (final RyaStatement st : batch) {
                 final int mark = buffer.size();
                 try {
                     maker.add(List.of(st), spec.addPolicy);
+                    counters.addAll(call);
                     statements.add(1);
                 } catch (final RuntimeException e) {
                     buffer.subList(mark, buffer.size()).clear();
                     bad.add(abbreviate(String.valueOf(st)), e);
+                } finally {
+                    call.clear();
                 }
             }
-        }
-
-        /** Moves the counter deltas of the calls just written from the buffer to the task's sums. */
-        private void foldCounters() {
-            int kept = 0;
-            for (int i = 0; i < buffer.size(); i++) {
-                final Tuple2<byte[], Shuffle.Value> c = buffer.get(i);
-                if (c._2().counter) {
-                    final ByteBuffer key = ByteBuffer.wrap(c._1());
-                    final long[] sum = counters.get(key);
-                    if (sum == null) {
-                        counters.put(key, new long[] {c._2().delta});
-                    } else {
-                        sum[0] = Math.addExact(sum[0], c._2().delta);
-                    }
-                } else {
-                    buffer.set(kept++, c);
-                }
-            }
-            buffer.subList(kept, buffer.size()).clear();
         }
 
         private void drainCounters() {
-            for (final java.util.Map.Entry<ByteBuffer, long[]> e : counters.entrySet()) {
-                buffer.add(new Tuple2<>(e.getKey().array(), Shuffle.Value.counter(e.getValue()[0])));
-            }
+            counters.forEach((key, sum) -> buffer.add(new Tuple2<>(key, Shuffle.Value.counter(sum))));
             counters.clear();
         }
 
@@ -402,8 +391,7 @@ final class Tasks {
         public void counter(final String table, final byte[] row, final byte[] family, final byte[] qualifier, final byte[] visibility,
                 final long delta) {
             final int t = spec.layout.table(table);
-            buffer.add(new Tuple2<>(Shuffle.Key.encode(spec.layout.partition(t, row, family, qualifier), row, family, qualifier,
-                    visibility), Shuffle.Value.counter(delta)));
+            call.add(Shuffle.Key.encode(spec.layout.partition(t, row, family, qualifier), row, family, qualifier, visibility), delta);
         }
     }
 
